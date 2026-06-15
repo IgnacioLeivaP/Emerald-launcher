@@ -18,6 +18,24 @@ source tree.
 
 ---
 
+## Download — prebuilt Switch build
+
+The [**Releases**](https://github.com/IgnacioLeivaP/Emerald-launcher/releases) page has a
+prebuilt **`.nro`** — the ready-to-run **Nintendo Switch homebrew executable** (the format
+the Homebrew Menu loads). You don't need to compile anything to try it on a Switch:
+
+1. Download
+   [`emerald_launcher.nro`](https://github.com/IgnacioLeivaP/Emerald-launcher/releases/latest)
+   and copy it to `sdmc:/switch/emerald_launcher.nro`.
+2. Put your own content in `sdmc:/emerald/` — `db.json`, your `roms/` and `saves/`
+   (see [Content layout](#content-layout-your-files)).
+3. For N64 titles, install RetroArch with its cores in `sdmc:/retroarch/cores/`.
+
+The NRO bundles only the launcher, its UI assets, and the statically-linked open-source
+cores (gambatte / snes9x / fceumm / mGBA) — **no ROMs, BIOS, or game artwork are included**.
+
+---
+
 ## Repository layout
 
 ```
