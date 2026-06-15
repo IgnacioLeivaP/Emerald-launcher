@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emerald Launcher Maker</title>
+<style>
+  :root{
+    --bg:#0e1813; --panel:#15241c; --panel2:#1b2e23; --line:#2b4435;
+    --gold:#d9b35a; --gold-dim:#9c8543; --text:#e7efe8; --muted:#8fa596;
+    --accent:#3da06a; --danger:#b4534b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Segoe UI,Roboto,system-ui,sans-serif;background:var(--bg);color:var(--text);font-size:14px}
+  header{position:sticky;top:0;z-index:10;background:var(--panel);border-bottom:2px solid var(--gold);
+         display:flex;gap:10px;align-items:center;padding:10px 16px;flex-wrap:wrap}
+  header h1{font-size:18px;margin:0;color:var(--gold);font-weight:600;letter-spacing:.5px}
+  header .spacer{flex:1}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;
+         padding:6px 12px;cursor:pointer;font-size:13px}
+  button:hover{border-color:var(--gold-dim)}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#06140c;font-weight:600}
+  button.gold{background:var(--gold);border-color:var(--gold);color:#1a1306;font-weight:600}
+  button.danger{color:#f0c8c4;border-color:#5a322e}
+  button.danger:hover{background:#3a201d}
+  button.sm{padding:3px 8px;font-size:12px}
+  .wrap{max-width:1050px;margin:0 auto;padding:18px}
+  .status{font-size:12px;color:var(--muted)}
+  .status b{color:var(--gold)}
+  details.settings{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:18px}
+  details.settings>summary{cursor:pointer;padding:10px 14px;color:var(--gold);font-weight:600;user-select:none}
+  .settings-body{padding:0 14px 14px}
+  .group{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:16px;overflow:hidden}
+  .group-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--panel2);border-bottom:1px solid var(--line)}
+  .group-head .gid{font-family:monospace;color:var(--gold-dim);font-size:12px}
+  .group-head .gtitle{font-weight:600;color:var(--gold);flex:1}
+  .group-body{padding:12px}
+  .row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .field{display:flex;flex-direction:column;gap:3px}
+  .field.grow{flex:1;min-width:160px}
+  .field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  input[type=text],input[type=number],textarea,select{
+    background:#0d1712;border:1px solid var(--line);border-radius:5px;color:var(--text);
+    padding:6px 8px;font-size:13px;font-family:inherit;width:100%}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--gold-dim)}
+  textarea{resize:vertical;min-height:48px}
+  .chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+  .entries{margin-top:6px}
+  .entry{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px;margin-bottom:10px}
+  .entry-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .entry-head .etag{font-size:11px;padding:2px 7px;border-radius:10px;background:#0d1712;border:1px solid var(--line);color:var(--gold-dim)}
+  .entry-head .etitle{flex:1;font-weight:600}
+  .shots{display:flex;flex-direction:column;gap:5px}
+  .shot{display:flex;gap:6px;align-items:center}
+  .shot img{height:34px;width:auto;border-radius:3px;border:1px solid var(--line);background:#000}
+  .logo-prev{height:40px;width:auto;border-radius:4px;border:1px solid var(--line);background:#000;margin-top:3px}
+  .hint{font-size:11px;color:var(--muted);margin:2px 0 0}
+  .addbar{margin-top:6px}
+  .empty{color:var(--muted);text-align:center;padding:40px}
+  .extrow{display:flex;gap:8px;margin-bottom:6px;align-items:center}
+  .extrow input{width:auto;flex:1}
+  .pill{font-size:11px;color:var(--muted)}
+  code{background:#0d1712;padding:1px 5px;border-radius:4px;color:var(--gold-dim);font-size:12px}
+  .filerow{display:flex;gap:5px;align-items:center}
+  .filerow input{flex:1}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;display:flex;align-items:center;justify-content:center}
+  .modalbox{background:var(--panel);border:1px solid var(--gold-dim);border-radius:10px;width:min(760px,92vw);max-height:82vh;display:flex;flex-direction:column}
+  .modalhead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}
+  .modalhead b{flex:1;color:var(--gold)}
+  .modalbox>input{margin:10px 12px}
+  .pickgrid{overflow:auto;padding:10px 12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+  .pickcell{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px;cursor:pointer;display:flex;flex-direction:column;gap:4px;align-items:center}
+  .pickcell:hover{border-color:var(--gold)}
+  .pickcell img{width:100%;height:80px;object-fit:contain;background:#000;border-radius:3px}
+  .pickname{font-size:11px;color:var(--muted);word-break:break-all;text-align:center}
+  .pickempty{color:var(--muted);padding:30px;text-align:center}
+</style>
+</head>
+<body>
+<header>
+  <h1>🟢 Emerald Launcher Maker</h1>
+  <span class="status" id="status">Sin cargar — abre tu db.json o empieza uno nuevo</span>
+  <span class="spacer"></span>
+  <input type="file" id="file" accept=".json,application/json" style="display:none">
+  <input type="file" id="dir" webkitdirectory directory style="display:none">
+  <button onclick="document.getElementById('file').click()">Abrir db.json</button>
+  <button onclick="newDb()">Nuevo</button>
+  <button title="Indexa la carpeta del launcher para poder elegir imágenes/ROMs con el botón 📁"
+          onclick="document.getElementById('dir').click()">📁 Indexar carpeta</button>
+  <button class="gold" onclick="download()">Descargar db.json</button>
+</header>
+
+<div class="wrap">
+  <details class="settings">
+    <summary>⚙ Configuración avanzada (extensiones · RetroArch)</summary>
+    <div class="settings-body" id="settings"></div>
+  </details>
+
+  <div id="games"></div>
+
+  <div style="margin-top:8px">
+    <button class="primary" onclick="addGame()">+ Agregar juego</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+let db = null;
+
+/* ---------- defaults ---------- */
+function emptyDb(){
+  return {
+    extensions:{
+      smc:{core:"snes9x_libretro.dll"}, sfc:{core:"snes9x_libretro.dll"},
+      nes:{core:"fceumm_libretro.dll"},
+      gb:{core:"gambatte_libretro.dll"}, gbc:{core:"gambatte_libretro.dll"},
+      gba:{core:"mgba_libretro.dll"},
+      n64:{core:"mupen64plus_next_libretro.dll"}, z64:{core:"mupen64plus_next_libretro.dll"},
+      v64:{core:"mupen64plus_next_libretro.dll"}, cue:{core:"same_cdi_libretro.dll"}
+    },
+    retroarch:{ exe_win:"C:/RetroArch-Win64/retroarch.exe",
+                cores_win:"C:/RetroArch-Win64/cores", cores_switch:"sdmc:/retroarch/cores" },
+    games:{}
+  };
+}
+
+/* ---------- load / save ---------- */
+document.getElementById('file').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    try{
+      const parsed = JSON.parse(r.result);
+      db = parsed;
+      if(!db.extensions) db.extensions={};
+      if(!db.retroarch)  db.retroarch={exe_win:"",cores_win:"",cores_switch:""};
+      if(!db.games)      db.games={};
+      render();
+      setStatus('Cargado: '+f.name);
+    }catch(err){ alert('JSON inválido:\n'+err.message); }
+  };
+  r.readAsText(f);
+  e.target.value='';
+});
+
+function newDb(){
+  if(db && !confirm('¿Descartar lo actual y empezar uno nuevo?')) return;
+  db = emptyDb(); render(); setStatus('Nuevo db.json en blanco');
+}
+
+function download(){
+  if(!db){ alert('Nada que descargar.'); return; }
+  const txt = JSON.stringify(db, null, 2);
+  const blob = new Blob([txt], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'db.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus('Descargado db.json — reemplázalo en la carpeta del launcher');
+}
+
+function setStatus(t){
+  let n=0,e=0;
+  if(db){ const g=db.games||{}; n=Object.keys(g).length;
+    for(const k in g) e+=(g[k].entries||[]).length; }
+  document.getElementById('status').innerHTML =
+    t + ' &nbsp;·&nbsp; <b>'+n+'</b> juegos, <b>'+e+'</b> versiones';
+}
+
+/* ---------- helpers ---------- */
+function el(tag, attrs={}, ...kids){
+  const n=document.createElement(tag);
+  for(const k in attrs){
+    if(k==='class') n.className=attrs[k];
+    else if(k.startsWith('on')) n[k]=attrs[k];
+    else n.setAttribute(k,attrs[k]);
+  }
+  for(const c of kids){ if(c==null)continue; n.append(c.nodeType?c:document.createTextNode(c)); }
+  return n;
+}
+function field(label, value, oninput, opts={}){
+  const inp = opts.area
+    ? el('textarea',{oninput:e=>oninput(e.target.value)})
+    : el('input',{type:opts.type||'text', oninput:e=>oninput(e.target.value)});
+  inp.value = value==null?'':value;
+  if(opts.ph) inp.placeholder=opts.ph;
+  return el('div',{class:'field '+(opts.grow?'grow':'')}, el('label',{},label), inp);
+}
+function imgPrev(path, cls){
+  if(!path) return null;
+  return el('img',{src:'../'+path, class:cls, onerror:function(){this.style.display='none'}});
+}
+
+/* ---------- file browser (index a folder, pick relative paths) ---------- */
+const IMG_EXT=['.png','.jpg','.jpeg','.webp','.gif'];
+const ROM_EXT=['.nes','.smc','.sfc','.gb','.gbc','.gba','.n64','.z64','.v64','.cue'];
+let projectFiles=[]; // {rel, file}
+
+document.getElementById('dir').addEventListener('change', e=>{
+  const files=[...e.target.files];
+  if(files.length){
+    projectFiles = files.map(f=>{
+      const p=f.webkitRelativePath; const i=p.indexOf('/');
+      return { rel: i>=0 ? p.slice(i+1) : p, file:f };   // drop the top folder name
+    });
+    setStatus('Carpeta indexada: '+files.length+' archivos');
+  }
+  e.target.value='';
+});
+
+function openPicker(exts, asStem, onPick){
+  if(!projectFiles.length){ alert('Primero pulsa “📁 Indexar carpeta” y elige la carpeta del launcher.'); return; }
+  const list=projectFiles.filter(f=> exts.some(x=> f.rel.toLowerCase().endsWith(x)));
+  const overlay=el('div',{class:'modal',onclick:ev=>{ if(ev.target===overlay) close(); }});
+  const grid=el('div',{class:'pickgrid'});
+  const search=el('input',{type:'text',placeholder:'Buscar por nombre/ruta...',oninput:draw});
+  function close(){ document.body.removeChild(overlay); }
+  function draw(){
+    grid.innerHTML='';
+    const q=search.value.toLowerCase();
+    const hits=list.filter(f=> f.rel.toLowerCase().includes(q)).slice(0,400);
+    if(!hits.length){ grid.append(el('div',{class:'pickempty'},'Sin archivos que coincidan.')); return; }
+    hits.forEach(f=>{
+      const isImg=/\.(png|jpe?g|webp|gif)$/i.test(f.rel);
+      const cell=el('div',{class:'pickcell',onclick:()=>{
+        let val=f.rel;
+        if(asStem){ const n=f.file.name, d=n.lastIndexOf('.'); val = d>0 ? n.slice(0,d) : n; }
+        onPick(val); close();
+      }});
+      if(isImg){ const im=el('img',{}); im.src=URL.createObjectURL(f.file); cell.append(im); }
+      cell.append(el('div',{class:'pickname'}, f.rel));
+      grid.append(cell);
+    });
+  }
+  const box=el('div',{class:'modalbox'},
+    el('div',{class:'modalhead'}, el('b',{}, asStem?'Elegir ROM':'Elegir archivo'),
+       el('button',{class:'sm',onclick:close},'✕')),
+    search, grid);
+  overlay.append(box); document.body.append(overlay); draw(); search.focus();
+}
+
+function browseBtn(exts, asStem, apply){
+  return el('button',{class:'sm',type:'button',title:'Buscar archivo',
+    onclick:()=> openPicker(exts, asStem, p=>{ apply(p); render(); })}, '📁');
+}
+
+/* field with a browse (📁) button */
+function fileField(label, value, set, opts={}){
+  const f=field(label, value, set, opts);
+  const inp=f.querySelector('input');
+  const b=browseBtn(opts.exts||IMG_EXT, opts.asStem, p=>set(p));
+  const row=el('div',{class:'filerow'});
+  inp.replaceWith(row); row.append(inp, b);
+  return f;
+}
+
+/* games object <-> ordered array (key order = carousel order) */
+function gamesArr(){ return Object.entries(db.games); }
+function setGames(arr){ const o={}; for(const [k,v] of arr) o[k]=v; db.games=o; }
+
+/* ---------- render ---------- */
+function render(){
+  renderSettings();
+  const host = document.getElementById('games');
+  host.innerHTML='';
+  if(!db){ host.append(el('div',{class:'empty'},'Abre tu db.json o crea uno nuevo.')); return; }
+  const arr = gamesArr();
+  if(arr.length===0){ host.append(el('div',{class:'empty'},'Sin juegos todavía. Usa “+ Agregar juego”.')); }
+  arr.forEach(([key,g],gi)=> host.append(groupCard(key,g,gi,arr.length)));
+  setStatus(document.getElementById('status').dataset.t||'Listo');
+}
+
+function renderSettings(){
+  const host=document.getElementById('settings'); host.innerHTML='';
+  if(!db) return;
+  // RetroArch
+  const ra=db.retroarch||(db.retroarch={});
+  host.append(el('div',{class:'pill'},'RetroArch (para sistemas pesados como N64):'));
+  host.append(el('div',{class:'row'},
+    field('exe_win', ra.exe_win, v=>ra.exe_win=v, {grow:1}),
+    field('cores_win', ra.cores_win, v=>ra.cores_win=v, {grow:1}),
+    field('cores_switch', ra.cores_switch, v=>ra.cores_switch=v, {grow:1})));
+  // Extensions
+  host.append(el('div',{class:'pill',style:'margin-top:8px'},'Extensiones → core (in-launcher):'));
+  const ex=db.extensions||(db.extensions={});
+  const exHost=el('div',{});
+  for(const k of Object.keys(ex)){
+    exHost.append(el('div',{class:'extrow'},
+      inputVal(k,'ext', nv=>{ const val=ex[k]; delete ex[k]; if(nv) ex[nv]=val; renderSettings(); }),
+      inputVal((ex[k]&&ex[k].core)||'', 'core.dll', nv=>{ if(!ex[k])ex[k]={}; ex[k].core=nv; }),
+      el('button',{class:'sm danger',onclick:()=>{delete ex[k];renderSettings();}},'✕')));
+  }
+  host.append(exHost);
+  host.append(el('button',{class:'sm',onclick:()=>{ ex['']={core:''}; renderSettings(); }},'+ extensión'));
+}
+function inputVal(value, ph, oninput){
+  const i=el('input',{type:'text',oninput:e=>oninput(e.target.value)}); i.value=value; i.placeholder=ph; return i;
+}
+
+/* ---------- group card ---------- */
+function groupCard(key,g,gi,total){
+  const head = el('div',{class:'group-head'},
+    el('span',{class:'gid'},'#'+gi),
+    el('span',{class:'gtitle'}, g.title||key||'(sin título)'),
+    el('button',{class:'sm',title:'subir',onclick:()=>moveGame(gi,-1)},'▲'),
+    el('button',{class:'sm',title:'bajar',onclick:()=>moveGame(gi,1)},'▼'),
+    el('button',{class:'sm danger',onclick:()=>{ if(confirm('¿Borrar juego “'+(g.title||key)+'”?')){const a=gamesArr();a.splice(gi,1);setGames(a);render();} }},'Borrar'));
+
+  const body = el('div',{class:'group-body'});
+  // group key (id)
+  body.append(el('div',{class:'row'},
+    field('ID (clave única)', key, nv=>{ renameGame(key,nv); }, {}),
+    field('Título', g.title, v=>{g.title=v; head.querySelector('.gtitle').textContent=v||key;}, {grow:1}),
+    field('Año', g.year, v=>g.year=parseInt(v)||0, {type:'number'})));
+  body.append(el('div',{class:'row'},
+    fileField('Logo (ruta)', g.logo, v=>g.logo=v, {grow:1, exts:IMG_EXT, ph:'roms/Z1/logo.png'})));
+  const lp=imgPrev(g.logo,'logo-prev'); if(lp) body.append(lp);
+  body.append(field('Descripción', g.description, v=>g.description=v, {area:1, grow:1}));
+  body.append(el('div',{class:'row'},
+    el('label',{class:'chk'}, checkbox(g.sequential, v=>g.sequential=v), 'Secuencial (semanas, tipo AST)'),
+    field('Core de grupo (opcional)', g.core, v=>{ if(v)g.core=v; else delete g.core; }, {grow:1, ph:'opcional, ej. same_cdi_libretro.dll'})));
+
+  // entries
+  const ents = el('div',{class:'entries'});
+  (g.entries||(g.entries=[])).forEach((e,ei)=> ents.append(entryCard(g,e,ei)));
+  body.append(el('div',{class:'pill'},'Versiones:'));
+  body.append(ents);
+  body.append(el('div',{class:'addbar'},
+    el('button',{class:'sm primary',onclick:()=>{ g.entries.push({title:'Nueva versión',platform:'',version_desc:''}); render(); }},'+ versión')));
+
+  return el('div',{class:'group'}, head, body);
+}
+
+function checkbox(val,oninput){ const c=el('input',{type:'checkbox',onchange:e=>oninput(e.target.checked)}); c.checked=!!val; return c; }
+
+/* ---------- entry card ---------- */
+function entryType(e){ if(e.external) return 'external'; if(e.retroarch_core) return 'retroarch'; return 'inlauncher'; }
+
+function entryCard(g,e,ei){
+  const type=entryType(e);
+  const head=el('div',{class:'entry-head'},
+    el('span',{class:'etag'}, type==='external'?'EXTERNAL': type==='retroarch'?'RETROARCH':'IN-LAUNCHER'),
+    el('span',{class:'etitle'}, e.title||'(sin título)'),
+    el('button',{class:'sm',onclick:()=>moveEntry(g,ei,-1)},'▲'),
+    el('button',{class:'sm',onclick:()=>moveEntry(g,ei,1)},'▼'),
+    el('button',{class:'sm danger',onclick:()=>{ g.entries.splice(ei,1); render(); }},'✕'));
+
+  const card=el('div',{class:'entry'}, head);
+
+  // common
+  card.append(el('div',{class:'row'},
+    field('Título versión', e.title, v=>{e.title=v; head.querySelector('.etitle').textContent=v||'(sin título)';}, {grow:1}),
+    field('Plataforma', e.platform, v=>e.platform=v, {ph:'N64 / SNES / CD-i...'}),
+    typeSelect(e)));
+
+  // launch-specific
+  if(type==='external'){
+    const ext=e.external||(e.external={});
+    card.append(el('div',{class:'row'},
+      field('Switch NRO', ext.nro, v=>ext.nro=v, {grow:1, ph:'sdmc:/switch/app.nro'}),
+      fileField('PC EXE', ext.exe, v=>ext.exe=v, {grow:1, exts:['.exe'], ph:'C:/.../app.exe'}),
+      field('argv', ext.argv, v=>ext.argv=v, {ph:'opcional'})));
+  } else {
+    card.append(el('div',{class:'row'},
+      fileField('Stem (nombre del ROM sin extensión)', e.stem, v=>e.stem=v, {grow:1, exts:ROM_EXT, asStem:true, ph:'ej. ocarinaorig'})));
+    if(type==='retroarch'){
+      card.append(field('retroarch_core', e.retroarch_core, v=>e.retroarch_core=v, {ph:'mupen64plus_next_libretro'}));
+    }
+  }
+
+  // logo
+  card.append(el('div',{class:'row'},
+    fileField('Logo de versión (opcional)', e.logo, v=>{ if(v)e.logo=v; else delete e.logo; }, {grow:1, exts:IMG_EXT})));
+  const lp=imgPrev(e.logo,'logo-prev'); if(lp) card.append(lp);
+
+  // description
+  card.append(field('Descripción de versión', e.version_desc, v=>e.version_desc=v, {area:1}));
+
+  // screenshots
+  card.append(el('div',{class:'pill'},'Capturas:'));
+  const shots=el('div',{class:'shots'});
+  (e.screenshots||(e.screenshots=[])).forEach((s,si)=>{
+    const inp=el('input',{type:'text',oninput:ev=>e.screenshots[si]=ev.target.value}); inp.value=s; inp.placeholder='roms/Z1/shot.png';
+    const prev=imgPrev(s,'');
+    shots.append(el('div',{class:'shot'},
+      prev||el('span',{}), inp,
+      browseBtn(IMG_EXT, false, p=>e.screenshots[si]=p),
+      el('button',{class:'sm danger',onclick:()=>{ e.screenshots.splice(si,1); render(); }},'✕')));
+  });
+  card.append(shots);
+  card.append(el('div',{class:'addbar'}, el('button',{class:'sm',onclick:()=>{ e.screenshots.push(''); render(); }},'+ captura')));
+
+  // advanced
+  const adv=el('details',{});
+  adv.append(el('summary',{style:'cursor:pointer;color:#8fa596;font-size:12px;margin-top:6px'},'Avanzado'));
+  const ab=el('div',{class:'row',style:'margin-top:6px'},
+    field('week_complete_mask', e.week_complete_mask, v=>{ const n=parseInt(v); if(n)e.week_complete_mask=n; else delete e.week_complete_mask; }, {type:'number'}),
+    field('carry_save_from', e.carry_save_from, v=>{ if(v)e.carry_save_from=v; else delete e.carry_save_from; }, {grow:1, ph:'stem de la semana anterior'}),
+    field('Core override', e.core, v=>{ if(v)e.core=v; else delete e.core; }, {grow:1}));
+  adv.append(ab);
+  card.append(adv);
+
+  return card;
+}
+
+function typeSelect(e){
+  const sel=el('select',{onchange:ev=>{ setEntryType(e, ev.target.value); render(); }});
+  [['inlauncher','In-launcher'],['retroarch','RetroArch'],['external','External']].forEach(([v,t])=>{
+    const o=el('option',{value:v},t); if(entryType(e)===v)o.selected=true; sel.append(o);
+  });
+  return el('div',{class:'field'}, el('label',{},'Lanzamiento'), sel);
+}
+function setEntryType(e,t){
+  delete e.external; delete e.retroarch_core;
+  if(t==='external'){ e.external={nro:'',exe:'',argv:''}; }
+  else if(t==='retroarch'){ e.retroarch_core='mupen64plus_next_libretro'; }
+}
+
+/* ---------- structural ops ---------- */
+function addGame(){
+  if(!db) db=emptyDb();
+  let base='nuevo', k=base, i=1; while(db.games[k]) k=base+(++i);
+  db.games[k]={title:'Nuevo juego',year:0,description:'',entries:[]};
+  render();
+}
+function renameGame(oldKey,newKey){
+  if(!newKey||newKey===oldKey) return;
+  if(db.games[newKey]){ return; } // avoid collision silently
+  const arr=gamesArr().map(([k,v])=> k===oldKey?[newKey,v]:[k,v]);
+  setGames(arr); render();
+}
+function moveGame(i,dir){
+  const arr=gamesArr(); const j=i+dir; if(j<0||j>=arr.length) return;
+  [arr[i],arr[j]]=[arr[j],arr[i]]; setGames(arr); render();
+}
+function moveEntry(g,i,dir){
+  const j=i+dir; if(j<0||j>=g.entries.length) return;
+  [g.entries[i],g.entries[j]]=[g.entries[j],g.entries[i]]; render();
+}
+
+/* keep last status text */
+const _origSetStatus=setStatus;
+setStatus=function(t){ document.getElementById('status').dataset.t=t; _origSetStatus(t); };
+
+render();
+</script>
+</body>
+</html>

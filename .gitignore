@@ -1,0 +1,33 @@
+# Build output
+build/
+build-switch/
+dist/
+dist-switch/
+*.elf
+*.nacp
+*.nro
+*.map
+
+# Binaries (downloaded, not source)
+cores/
+*.dll
+
+# Cloned core source (built into .a libs for the Switch static build)
+cores-src/
+
+# User content
+roms/
+saves/
+system/
+
+# Copyrighted artwork (Nintendo promo art) — not redistributed
+imgs/Zelda collection.jpg
+
+# Reference RetroArch Switch install (not part of this project)
+RetroArchswitch/
+
+# Generated at runtime
+prefs.json
+progress.json
+*.srm
+switch/cores/

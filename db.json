@@ -1,0 +1,355 @@
+{
+  "extensions": {
+    "smc": { "core": "snes9x_libretro.dll" },
+    "sfc": { "core": "snes9x_libretro.dll" },
+    "nes": { "core": "fceumm_libretro.dll" },
+    "gb":  { "core": "gambatte_libretro.dll" },
+    "gbc": { "core": "gambatte_libretro.dll" },
+    "gba": { "core": "mgba_libretro.dll" },
+    "n64": { "core": "mupen64plus_next_libretro.dll" },
+    "z64": { "core": "mupen64plus_next_libretro.dll" },
+    "v64": { "core": "mupen64plus_next_libretro.dll" },
+    "cue": { "core": "same_cdi_libretro.dll" }
+  },
+  "retroarch": {
+    "exe_win":      "C:/RetroArch-Win64/retroarch.exe",
+    "cores_win":    "C:/RetroArch-Win64/cores",
+    "cores_switch": "sdmc:/retroarch/cores"
+  },
+  "games": {
+    "zelda1": {
+      "title": "The Legend of Zelda",
+      "logo": "roms/Z1/Zelda1.png",
+      "year": 1986,
+      "description": "Link's original quest to rescue Princess Zelda and recover the Triforce of Wisdom from Ganon.",
+      "entries": [
+        { "stem": "Zelda1original", "title": "NES Original",   "platform": "NES",
+          "version_desc": "The original 1986 NES release. Classic gameplay without any modifications.",
+          "screenshots": [
+            "roms/Z1/ZELDAORIG SCREENSHOT (1).png",
+            "roms/Z1/ZELDAORIG SCREENSHOT (2).png",
+            "roms/Z1/ZELDAORIG SCREENSHOT (3).png"
+          ]
+        },
+        { "stem": "Zelda1redux",    "title": "NES Redux",      "platform": "NES",
+          "logo": "roms/Z1/Zelda1REDUX.png",
+          "version_desc": "Quality-of-life improvements: in-game maps, upgraded inventory UI and various bug fixes, preserving the original feel.",
+          "screenshots": [
+            "roms/Z1/ZELDA REDUX SCREENSHOT (1).png",
+            "roms/Z1/ZELDA REDUX SCREENSHOT (2).png",
+            "roms/Z1/ZELDA REDUX SCREENSHOT (3).png"
+          ]
+        },
+        { "stem": "BS-Zelda",       "title": "BS Satellaview", "platform": "SNES (Satellaview)",
+          "logo": "roms/Z1/BS-Zelda.png",
+          "version_desc": "Satellaview remake with enhanced SNES graphics, redesigned overworld layouts and newly composed music.",
+          "screenshots": [
+            "roms/Z1/BS ZELDA SCREENSHOT (1).png",
+            "roms/Z1/BS ZELDA SCREENSHOT (2).png",
+            "roms/Z1/BS ZELDA SCREENSHOT (3).png"
+          ]
+        }
+      ]
+    },
+    "zelda2": {
+      "title": "Zelda II: The Adventure of Link",
+      "logo": "roms/Z2/zelda2.png",
+      "year": 1987,
+      "description": "Action RPG sequel. Link must awaken Princess Zelda and destroy Ganon's shadow across Hyrule.",
+      "entries": [
+        { "stem": "Zelda2Original", "title": "NES Original", "platform": "NES",
+          "version_desc": "The original 1987 NES side-scrolling RPG. Notoriously challenging difficulty.",
+          "screenshots": [
+            "roms/Z2/2026-06-12T14-56-12Z.png",
+            "roms/Z2/2026-06-12T14-56-33Z.png",
+            "roms/Z2/2026-06-12T14-56-53Z.png",
+            "roms/Z2/2026-06-12T14-57-43Z.png"
+          ]
+        },
+        { "stem": "Zelda2redux",    "title": "NES Redux",    "platform": "NES",
+          "logo": "roms/Z2/zelda2REDUX.png",
+          "version_desc": "Rebalanced difficulty curve, improved controls and UI fixes for a more approachable experience.",
+          "screenshots": [
+            "roms/Z2/2026-06-12T14-56-12Z.png",
+            "roms/Z2/2026-06-12T14-56-33Z.png",
+            "roms/Z2/2026-06-12T14-56-53Z.png",
+            "roms/Z2/2026-06-12T14-57-43Z.png"
+          ]
+        }
+      ]
+    },
+    "zelda3": {
+      "title": "A Link to the Past",
+      "logo": "roms/Z3/zeldaalttp.png",
+      "year": 1991,
+      "description": "Link travels between the Light World and Dark World to defeat Agahnim and save Hyrule from Ganon.",
+      "entries": [
+        { "stem": "zeldaalttp",    "title": "SNES Original", "platform": "SNES",
+          "version_desc": "The original 1991 SNES release. Widely considered one of the greatest games ever made.",
+          "screenshots": [
+            "roms/Z3/ZELDAALTTP SCREENSHOT (1).png",
+            "roms/Z3/ZELDAALTTP SCREENSHOT (2).png",
+            "roms/Z3/ZELDAALTTP SCREENSHOT (3).png",
+            "roms/Z3/ZELDAALTTP SCREENSHOT (4).png"
+          ]
+        },
+        { "stem": "zeldatriforce", "title": "ALTTP Redux",   "platform": "SNES",
+          "logo": "roms/Z3/zeldatriforce.png",
+          "version_desc": "Restoration hack that re-introduces content cut from the Japanese original, alongside quality-of-life improvements and a refined translation.",
+          "screenshots": [
+            "roms/Z3/ZELDATRIFORCE SCREENSHOT (1).png",
+            "roms/Z3/ZELDATRIFORCE SCREENSHOT (2).png",
+            "roms/Z3/ZELDATRIFORCE SCREENSHOT (3).png",
+            "roms/Z3/ZELDATRIFORCE SCREENSHOT (4).png"
+          ]
+        }
+      ]
+    },
+    "bszelda_ast": {
+      "title": "Ancient Stone Tablets",
+      "logo": "roms/Z4/The_Legend_of_Zelda_ast.png",
+      "year": 1997,
+      "description": "Satellaview broadcast Zelda across 4 weeks. Complete both dungeons each week to unlock the next.",
+      "sequential": true,
+      "core": "snes9x_libretro.dll",
+      "entries": [
+        { "stem": "bszelda_ast1", "title": "Week 1", "platform": "SNES (Satellaview)", "week_complete_mask": 3,
+          "screenshots": [
+            "roms/Z4/zelda ast screenshot (1).png",
+            "roms/Z4/zelda ast screenshot (2).png",
+            "roms/Z4/zelda ast screenshot (3).png"
+          ]
+        },
+        { "stem": "bszelda_ast2", "title": "Week 2", "platform": "SNES (Satellaview)", "carry_save_from": "bszelda_ast1", "week_complete_mask": 12,
+          "screenshots": [
+            "roms/Z4/zelda ast screenshot (1).png",
+            "roms/Z4/zelda ast screenshot (2).png",
+            "roms/Z4/zelda ast screenshot (4).png"
+          ]
+        },
+        { "stem": "bszelda_ast3", "title": "Week 3", "platform": "SNES (Satellaview)", "carry_save_from": "bszelda_ast2", "week_complete_mask": 48,
+          "screenshots": [
+            "roms/Z4/zelda ast screenshot (1).png",
+            "roms/Z4/zelda ast screenshot (3).png",
+            "roms/Z4/zelda ast screenshot (4).png"
+          ]
+        },
+        { "stem": "bszelda_ast4", "title": "Week 4", "platform": "SNES (Satellaview)", "carry_save_from": "bszelda_ast3", "week_complete_mask": 0,
+          "screenshots": [
+            "roms/Z4/zelda ast screenshot (2).png",
+            "roms/Z4/zelda ast screenshot (3).png",
+            "roms/Z4/zelda ast screenshot (4).png"
+          ]
+        }
+      ]
+    },
+    "zelda5": {
+      "title": "Link's Awakening",
+      "logo": "roms/Z5/zeldaawake.png",
+      "year": 1993,
+      "description": "Shipwrecked on Koholint Island, Link must awaken the Wind Fish to escape and return home.",
+      "entries": [
+        { "stem": "zeldaawakeoriginal", "title": "GBC Original", "platform": "GBC",
+          "version_desc": "The original Game Boy Color release of Link's island adventure.",
+          "screenshots": [
+            "roms/Z5/zeldaawake screenshot (1).png",
+            "roms/Z5/zeldaawake screenshot (2).png",
+            "roms/Z5/zeldaawake screenshot (3).png",
+            "roms/Z5/zeldaawake screenshot (4).png"
+          ]
+        },
+        { "stem": "zeldaawakeredux",    "title": "Redux",        "platform": "GBC",
+          "logo": "roms/Z5/zeldaawakeredux.png",
+          "version_desc": "Enhanced color palette, rebalanced gameplay, smoother controls and various quality-of-life improvements.",
+          "screenshots": [
+            "roms/Z5/zeldawake dx redux screenshot (1).png",
+            "roms/Z5/zeldawake dx redux screenshot (2).png",
+            "roms/Z5/zeldawake dx redux screenshot (3).png",
+            "roms/Z5/zeldawake dx redux screenshot (4).png"
+          ]
+        }
+      ]
+    },
+    "zelda6": {
+      "title": "Oracle of Seasons",
+      "logo": "roms/Z6/zeldaoos.png",
+      "year": 2001,
+      "description": "Link must restore the seasons in Holodrum by defeating Onox and rescuing the Oracle of Seasons, Din.",
+      "entries": [
+        { "stem": "zeldaoos", "title": "GBC Original", "platform": "GBC",
+          "version_desc": "Original GBC release. Manipulate the seasons to solve puzzles and navigate the world.",
+          "screenshots": [
+            "roms/Z6/zeldaoos screenshot (1).png",
+            "roms/Z6/zeldaoos screenshot (2).png",
+            "roms/Z6/zeldaoos screenshot (3).png",
+            "roms/Z6/zeldaoos screenshot (4).png"
+          ]
+        }
+      ]
+    },
+    "zelda7": {
+      "title": "Oracle of Ages",
+      "logo": "roms/Z7/zeldaooa.png",
+      "year": 2001,
+      "description": "Link travels through time in Labrynna to rescue Nayru, the Oracle of Ages, from Veran's control.",
+      "entries": [
+        { "stem": "zeldaooa", "title": "GBC Original", "platform": "GBC",
+          "version_desc": "Original GBC release. Travel between past and present to unravel Veran's scheme.",
+          "screenshots": [
+            "roms/Z7/zeldaooa screenshot (1).png",
+            "roms/Z7/zeldaooa screenshot (2).png",
+            "roms/Z7/zeldaooa screenshot (3).png",
+            "roms/Z7/zeldaooa screenshot (4).png"
+          ]
+        }
+      ]
+    },
+    "zelda8": {
+      "title": "The Minish Cap",
+      "logo": "roms/Z8/minish.png",
+      "year": 2004,
+      "description": "Link shrinks down to Minish size to forge the Four Sword and stop the sorcerer Vaati from covering Hyrule in darkness.",
+      "entries": [
+        { "stem": "minish", "title": "GBA Original", "platform": "GBA",
+          "version_desc": "Original GBA release. A unique adventure where Link can shrink to explore a hidden world.",
+          "screenshots": [
+            "roms/Z8/2026-06-12T14-59-23Z.png",
+            "roms/Z8/2026-06-12T15-01-09Z.png",
+            "roms/Z8/2026-06-12T15-01-34Z.png",
+            "roms/Z8/2026-06-12T15-06-44Z.png"
+          ]
+        }
+      ]
+    },
+    "zelda_oot": {
+      "title": "Ocarina of Time",
+      "logo": "roms/Z9/zeldaootlogo.png",
+      "year": 1998,
+      "description": "Link travels through time to stop Ganondorf from claiming the Triforce and conquering Hyrule.",
+      "entries": [
+        { "stem": "ocarinaorig", "title": "N64 Original", "platform": "N64",
+          "retroarch_core": "mupen64plus_next_libretro",
+          "version_desc": "The original 1998 N64 release. A masterpiece that defined 3D action-adventure.",
+          "screenshots": [
+            "roms/Z9/ocarina1.png",
+            "roms/Z9/ocarina2.jpg",
+            "roms/Z9/ocarina3.jpg",
+            "roms/Z9/ocarina4.jpg",
+            "roms/Z9/ocarina5.png"
+          ] },
+        { "stem": "Legend of Zelda OCARINA REDUX", "title": "Redux", "platform": "N64",
+          "retroarch_core": "mupen64plus_next_libretro",
+          "logo": "roms/Z9/zeldaootlogoredux.png",
+          "version_desc": "Hack with quality-of-life improvements, refined controls and restored content.",
+          "screenshots": [
+            "roms/Z9/Zeldaredux (1).png",
+            "roms/Z9/Zeldaredux (2).png",
+            "roms/Z9/Zeldaredux (3).png",
+            "roms/Z9/Zeldaredux (4).png",
+            "roms/Z9/Zeldaredux (5).png"
+          ] },
+        { "stem": "Legend of ZeldA DEMO 97", "title": "Spaceworld '97 Beta", "platform": "N64",
+          "retroarch_core": "mupen64plus_next_libretro",
+          "logo": "roms/Z9/zeldademologo.png",
+          "version_desc": "A recreation of the demo shown at Nintendo Space World 1997: beta areas, dialogue and textures carefully restored by /Zel/.",
+          "screenshots": [
+            "roms/Z9/zeldademo97 (1).png",
+            "roms/Z9/zeldademo97 (2).png",
+            "roms/Z9/zeldademo97 (3).png",
+            "roms/Z9/zeldademo97 (4).png"
+          ] },
+        { "title": "Ship of Harkinian", "platform": "PC / Switch Port",
+          "logo": "roms/Z9/zeldaootshiplogo.png",
+          "version_desc": "Native recompilation with widescreen, 60fps and quality-of-life improvements. Runs outside the launcher.",
+          "external": {
+            "nro": "sdmc:/switch/soh/soh.nro",
+            "exe": "C:/Games/SoH/soh.exe",
+            "argv": ""
+          } }
+      ]
+    },
+    "zelda_mm": {
+      "title": "Majora's Mask",
+      "logo": "roms/Z10/zeldamajoralogo.png",
+      "year": 2000,
+      "description": "Trapped in Termina, Link has only three days to stop the moon from crashing into the world.",
+      "entries": [
+        { "stem": "majora", "title": "N64 Original", "platform": "N64",
+          "retroarch_core": "mupen64plus_next_libretro",
+          "version_desc": "The original 2000 N64 release, a direct sequel to Ocarina of Time built around the three-day system.",
+          "screenshots": [
+            "roms/Z10/majora1.png",
+            "roms/Z10/majora2.png",
+            "roms/Z10/majora3.png",
+            "roms/Z10/majora4.png"
+          ] },
+        { "stem": "Legend of Zelda majora redux", "title": "Redux", "platform": "N64",
+          "retroarch_core": "mupen64plus_next_libretro",
+          "logo": "roms/Z10/zeldamajorareduxlogo.png",
+          "version_desc": "Hack with quality-of-life improvements and gameplay tweaks." }
+      ]
+    },
+    "zelda_foe": {
+      "title": "Link: The Faces of Evil",
+      "logo": "roms/Z11/linkfaces.png",
+      "platforms": ["pc"],
+      "year": 1993,
+      "description": "One of the infamous Zelda games for the Philips CD-i. Link sets out to free the island of Koridai from Ganon. Heads-up: it boots to a light-blue screen and takes around 30 seconds to start.",
+      "entries": [
+        { "stem": "Link - The Faces of Evil (Europe)", "title": "CD-i Original", "platform": "CD-i",
+          "version_desc": "The notorious 1993 CD-i title, famous for its animated cutscenes. Heads-up: it boots to a light-blue screen and takes around 30 seconds to start.",
+          "screenshots": [
+            "roms/Z11/link-the-faces-of-evil_1.png",
+            "roms/Z11/link-the-faces-of-evil_2.png",
+            "roms/Z11/link-the-faces-of-evil_4.png",
+            "roms/Z11/link-the-faces-of-evil_8.png",
+            "roms/Z11/link-the-faces-of-evil_9.png",
+            "roms/Z11/link-the-faces-of-evil_10.jpg"
+          ] }
+      ]
+    },
+    "zelda_wog": {
+      "title": "Zelda: The Wand of Gamelon",
+      "logo": "roms/Z12/zeldagamelon.png",
+      "platforms": ["pc"],
+      "year": 1993,
+      "description": "A CD-i game starring Zelda, who travels to the land of Gamelon to rescue Link and the King. Heads-up: it boots to a light-blue screen and takes around 30 seconds to start.",
+      "entries": [
+        { "stem": "Zelda - The Wand of Gamelon (Europe)", "title": "CD-i Original", "platform": "CD-i",
+          "version_desc": "A 1993 CD-i title where Zelda is the playable protagonist. Heads-up: it boots to a light-blue screen and takes around 30 seconds to start.",
+          "screenshots": [
+            "roms/Z12/zelda-the-wand-of-gamelon_1.png",
+            "roms/Z12/zelda-the-wand-of-gamelon_2.png",
+            "roms/Z12/zelda-the-wand-of-gamelon_4.png",
+            "roms/Z12/zelda-the-wand-of-gamelon_9.png"
+          ] }
+      ]
+    },
+    "zelda_adv": {
+      "title": "Zelda's Adventure",
+      "logo": "roms/Z13/zeldaadventlogo.png",
+      "year": 1994,
+      "description": "The third and most distinct CD-i Zelda game: an isometric top-down action-adventure where Princess Zelda sets out to rescue Link. Available as the CD-i original and a Game Boy Color fan remake.",
+      "entries": [
+        { "stem": "Zelda's Adventure (Europe)", "title": "CD-i Original", "platform": "CD-i",
+          "platforms": ["pc"],
+          "logo": "roms/Z13/zeldaadventlogo.png",
+          "version_desc": "The 1994 Philips CD-i original. Unlike the other CD-i Zeldas, a live-action-flavored isometric adventure starring Zelda as the hero. Heads-up: it boots to a light-blue screen and takes around 30 seconds to start.",
+          "screenshots": [
+            "roms/Z13/zelda-s-adventure_1.jpg",
+            "roms/Z13/zelda-s-adventure_2.jpg",
+            "roms/Z13/zelda-s-adventure_3.jpg",
+            "roms/Z13/zelda-s-adventure_5.jpg"
+          ] },
+        { "stem": "Zeldas.Adventure.DX.v2.2.0", "title": "GBC Fan Remake", "platform": "GBC (Fan Remake)",
+          "logo": "roms/Z13/zeldaadventdxlogo.png",
+          "version_desc": "Fan-made Game Boy Color demake that reimagines the CD-i original in classic top-down GBC style.",
+          "screenshots": [
+            "roms/Z13/Zeldas.Adventure.DX.v2.2.0-260614-133552.png",
+            "roms/Z13/Zeldas.Adventure.DX.v2.2.0-260614-133625.png",
+            "roms/Z13/Zeldas.Adventure.DX.v2.2.0-260614-133724.png"
+          ] }
+      ]
+    }
+  }
+}
