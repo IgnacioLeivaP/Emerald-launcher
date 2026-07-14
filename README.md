@@ -10,6 +10,9 @@ source tree.
   statically-linked libretro cores.
 - Heavy systems (N64) are delegated to **RetroArch** via chainload.
 - Custom CRT/bloom/ScaleFX shaders, save-RAM handling, and an in-game overlay.
+- **Ancient Stone Tablets mode** — recreates the BS Zelda 4-week Satellaview broadcast:
+  the launcher auto-detects when you've finished a week and carries your save into the
+  next one ([details below](#ancient-stone-tablets--automatic-weekly-progression)).
 
 > **No ROMs, BIOS files, or emulator cores are included in this repository.** You must
 > supply your own legally-obtained game files, and build or download the libretro cores
@@ -79,6 +82,28 @@ Supported extensions and their cores (from `db.json`):
 | `.gba`         | Game Boy Advance  | `mgba`                                 | in-launcher          |
 | `.n64` `.z64` `.v64` | Nintendo 64 | `mupen64plus_next`                     | RetroArch chainload  |
 | `.cue`         | CD-i              | `same_cdi`                             | PC only (no Switch core) |
+
+---
+
+## Ancient Stone Tablets — automatic weekly progression
+
+*BS The Legend of Zelda: Ancient Stone Tablets* was a Satellaview game broadcast in Japan
+over **four consecutive weeks** in 1997, each week adding new dungeons and story. The
+launcher recreates that event automatically so you can play it end-to-end today:
+
+- The four weeks are one **sequential** group — each week unlocks once you've cleared the
+  previous one, so you play them in order.
+- While in-game, the launcher watches the cartridge RAM and **detects when you've collected
+  that week's stone tablets** (via each entry's `week_complete_mask`). A `W1▸W2` badge then
+  appears in the corner.
+- Press **R3** (or `Tab`) to advance to the next week — your progress is **carried forward**
+  automatically (`carry_save_from` copies the previous week's save into the new one), just
+  like the original broadcast continued your file.
+- Press **L3** (or `Esc`) any time to return to the launcher.
+
+This is driven entirely by `db.json`: set `"sequential": true` on the group and give each
+entry a `week_complete_mask` and `carry_save_from`. No code changes needed to author a
+similar multi-part event for other games.
 
 ---
 
