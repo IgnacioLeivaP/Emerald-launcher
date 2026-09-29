@@ -20,8 +20,10 @@ Branding branding_load(const char *path) {
     if (!f) return b;
     try {
         auto j = nlohmann::json::parse(f);
-        if (j.contains("app_name") && j["app_name"].is_string())
-            b.app_name = j["app_name"].get<std::string>();
+        if (j.contains("app_name") && j["app_name"].is_string()) {
+            auto name = j["app_name"].get<std::string>();
+            if (!name.empty()) b.app_name = name;
+        }
         if (j.contains("assets") && j["assets"].is_object()) {
             auto &a = j["assets"];
             b.icon_path       = content_path(a.value("icon", ""));

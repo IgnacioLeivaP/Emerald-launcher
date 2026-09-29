@@ -26,6 +26,7 @@ fi
 echo ">> Content (db.json + roms, minus CD-i discs)"
 cp db.json "$DIST/emerald/"     # root db.json = source of truth
 [ -f branding.json ] && cp branding.json "$DIST/emerald/"
+[ -d branding ]      && cp -r branding "$DIST/emerald/"   # custom icon/splash/bg/font referenced by branding.json
 # Live ROMs/images live in dist/roms (moved there when packaging the PC build).
 if [ -d dist/roms ] && [ -n "$(ls -A dist/roms 2>/dev/null)" ]; then
     ROMSRC="dist/roms"

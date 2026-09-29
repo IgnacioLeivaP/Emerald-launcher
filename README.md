@@ -84,10 +84,14 @@ default:
 }
 ```
 
-Asset paths are relative to the content root, same as `db.json`'s image paths. Note
-this only covers what can change at runtime: the icon **embedded in the .exe** file
-itself (Windows Explorer/shortcut) and the name/icon shown on the **Switch Home
-menu** are baked in at build time and still require recompiling/repackaging.
+Asset paths are relative to the content root, same as `db.json`'s image paths. Put
+your custom files under a `branding/` folder (as in the example above) — `package.sh`
+and `package-switch.sh` copy that folder into the distribution automatically, the
+same way they already copy `imgs/`; assets referenced from elsewhere are your own
+responsibility to bundle. Note this only covers what can change at runtime: the icon
+**embedded in the .exe** file itself (Windows Explorer/shortcut) and the name/icon
+shown on the **Switch Home menu** are baked in at build time and still require
+recompiling/repackaging.
 
 ```
 roms/            your ROMs + the per-game logo/screenshot PNGs referenced by db.json
