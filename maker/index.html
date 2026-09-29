@@ -82,6 +82,7 @@
   <span class="status" id="status">Sin cargar — abre tu db.json o empieza uno nuevo</span>
   <span class="spacer"></span>
   <input type="file" id="file" accept=".json,application/json" style="display:none">
+  <input type="file" id="brandingFile" accept=".json,application/json" style="display:none">
   <input type="file" id="dir" webkitdirectory directory style="display:none">
   <button onclick="document.getElementById('file').click()">Abrir db.json</button>
   <button onclick="newDb()">Nuevo</button>
@@ -91,6 +92,11 @@
 </header>
 
 <div class="wrap">
+  <details class="settings" open>
+    <summary>🎨 Branding de la app (nombre · ícono · splash · fondo · fuente)</summary>
+    <div class="settings-body" id="branding"></div>
+  </details>
+
   <details class="settings">
     <summary>⚙ Configuración avanzada (extensiones · RetroArch)</summary>
     <div class="settings-body" id="settings"></div>
@@ -106,6 +112,64 @@
 <script>
 "use strict";
 let db = null;
+let branding = emptyBranding();
+
+/* ---------- branding.json (app name, icon, splash, background, font) ---------- */
+function emptyBranding(){
+  return { app_name:"Emerald Launcher", assets:{ icon:"", splash:"", background:"", font:"" } };
+}
+
+document.getElementById('brandingFile').addEventListener('change', e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = ()=>{
+    try{
+      const parsed = JSON.parse(r.result);
+      branding = emptyBranding();
+      if(typeof parsed.app_name==='string') branding.app_name = parsed.app_name;
+      Object.assign(branding.assets, parsed.assets||{});
+      renderBranding();
+      setStatus('branding.json cargado: '+f.name);
+    }catch(err){ alert('JSON inválido:\n'+err.message); }
+  };
+  r.readAsText(f);
+  e.target.value='';
+});
+
+function downloadBranding(){
+  const txt = JSON.stringify(branding, null, 2);
+  const blob = new Blob([txt], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'branding.json';
+  a.click(); URL.revokeObjectURL(a.href);
+  setStatus('Descargado branding.json — colocalo junto a db.json');
+}
+
+function renderBranding(){
+  const host = document.getElementById('branding'); host.innerHTML='';
+  host.append(el('div',{class:'row'},
+    el('button',{class:'sm',type:'button',onclick:()=>document.getElementById('brandingFile').click()},'Abrir branding.json existente'),
+    el('button',{class:'sm gold',type:'button',onclick:downloadBranding},'Descargar branding.json')));
+  host.append(el('div',{class:'hint',style:'margin:6px 0 10px'},
+    'Dejá un campo vacío para usar el valor por defecto del launcher — no rompe nada si no lo tocás. ' +
+    'El ícono acá es el de la ventana en pantalla; el ícono del .exe y el del menú de Switch se definen al compilar.'));
+  host.append(el('div',{class:'row'},
+    field('Nombre de la app', branding.app_name, v=>branding.app_name=v, {grow:1, ph:'Emerald Launcher'})));
+  host.append(el('div',{class:'row'},
+    fileField('Ícono de ventana (PNG)', branding.assets.icon, v=>branding.assets.icon=v, {grow:1, exts:ICON_EXT, ph:'branding/icon.png', after:renderBranding})));
+  appendPreview(host, branding.assets.icon);
+  host.append(el('div',{class:'row'},
+    fileField('Splash screen', branding.assets.splash, v=>branding.assets.splash=v, {grow:1, exts:IMG_EXT, ph:'branding/splash.png', after:renderBranding})));
+  appendPreview(host, branding.assets.splash);
+  host.append(el('div',{class:'row'},
+    fileField('Imagen de fondo', branding.assets.background, v=>branding.assets.background=v, {grow:1, exts:IMG_EXT, ph:'branding/background.jpg', after:renderBranding})));
+  appendPreview(host, branding.assets.background);
+  host.append(el('div',{class:'row'},
+    fileField('Fuente (.ttf / .otf)', branding.assets.font, v=>branding.assets.font=v, {grow:1, exts:FONT_EXT, ph:'branding/font.ttf', after:renderBranding})));
+}
+function appendPreview(host, path){
+  const p = imgPrev(path, 'logo-prev'); if(p) host.append(p);
+}
 
 /* ---------- defaults ---------- */
 function emptyDb(){
@@ -192,6 +256,8 @@ function imgPrev(path, cls){
 
 /* ---------- file browser (index a folder, pick relative paths) ---------- */
 const IMG_EXT=['.png','.jpg','.jpeg','.webp','.gif'];
+const ICON_EXT=['.png','.ico'];
+const FONT_EXT=['.ttf','.otf'];
 const ROM_EXT=['.nes','.smc','.sfc','.gb','.gbc','.gba','.n64','.z64','.v64','.cue'];
 let projectFiles=[]; // {rel, file}
 
@@ -238,16 +304,16 @@ function openPicker(exts, asStem, onPick){
   overlay.append(box); document.body.append(overlay); draw(); search.focus();
 }
 
-function browseBtn(exts, asStem, apply){
+function browseBtn(exts, asStem, apply, after){
   return el('button',{class:'sm',type:'button',title:'Buscar archivo',
-    onclick:()=> openPicker(exts, asStem, p=>{ apply(p); render(); })}, '📁');
+    onclick:()=> openPicker(exts, asStem, p=>{ apply(p); (after||render)(); })}, '📁');
 }
 
 /* field with a browse (📁) button */
 function fileField(label, value, set, opts={}){
   const f=field(label, value, set, opts);
   const inp=f.querySelector('input');
-  const b=browseBtn(opts.exts||IMG_EXT, opts.asStem, p=>set(p));
+  const b=browseBtn(opts.exts||IMG_EXT, opts.asStem, p=>set(p), opts.after);
   const row=el('div',{class:'filerow'});
   inp.replaceWith(row); row.append(inp, b);
   return f;
@@ -441,6 +507,7 @@ function moveEntry(g,i,dir){
 const _origSetStatus=setStatus;
 setStatus=function(t){ document.getElementById('status').dataset.t=t; _origSetStatus(t); };
 
+renderBranding();
 render();
 </script>
 </body>

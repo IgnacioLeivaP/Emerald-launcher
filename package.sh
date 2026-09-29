@@ -21,6 +21,7 @@ echo ">> Copying app + assets"
 cp build/emerald_launcher.exe "$DIST"/
 cp -r imgs sounds cores maker "$DIST"/
 cp alagard.ttf db.json        "$DIST"/
+[ -f branding.json ] && cp branding.json "$DIST"/
 
 echo ">> Bundling runtime DLLs (recursive)"
 # The SDL satellite libs are loaded by the exe; resolve every mingw64 DLL that
