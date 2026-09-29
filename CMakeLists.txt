@@ -9,6 +9,7 @@ set(EL_SOURCES
     src/db.cpp
     src/launcher.cpp
     src/prefs.cpp
+    src/branding.cpp
     src/overlay.c
     src/core.c
     src/renderer.c

@@ -49,6 +49,7 @@ sounds/         UI sound effects (.wav)
 switch/         Switch icon + (gitignored) static core .a libraries
 maker/          Small HTML helper to author db.json
 db.json         The catalog: groups, entries, per-system core mapping, image paths
+branding.json   Optional: app name, window icon, splash/background/font overrides
 CMakeLists.txt  Cross-platform build (desktop OpenGL 3.3 / Switch GLES 3.0)
 package.sh         Assemble a shippable Windows dist/ folder
 package-switch.sh  Assemble the Switch NRO + sdmc:/emerald/ content folder
@@ -65,6 +66,32 @@ artifacts.
 
 The launcher reads `db.json` and scans a ROM directory. Image/screenshot paths in
 `db.json` are relative to the content root.
+
+An optional `branding.json` next to `db.json` lets you customize the app without
+recompiling — window title, window icon, splash screen, background image and font.
+Any field left empty (or the whole file, if absent) falls back to the built-in
+default:
+
+```json
+{
+  "app_name": "My Launcher",
+  "assets": {
+    "icon":       "branding/icon.png",
+    "splash":     "branding/splash.png",
+    "background": "branding/background.jpg",
+    "font":       "branding/font.ttf"
+  }
+}
+```
+
+Asset paths are relative to the content root, same as `db.json`'s image paths. Put
+your custom files under a `branding/` folder (as in the example above) — `package.sh`
+and `package-switch.sh` copy that folder into the distribution automatically, the
+same way they already copy `imgs/`; assets referenced from elsewhere are your own
+responsibility to bundle. Note this only covers what can change at runtime: the icon
+**embedded in the .exe** file itself (Windows Explorer/shortcut) and the name/icon
+shown on the **Switch Home menu** are baked in at build time and still require
+recompiling/repackaging.
 
 ```
 roms/            your ROMs + the per-game logo/screenshot PNGs referenced by db.json

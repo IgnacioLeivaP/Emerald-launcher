@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -13,6 +14,7 @@
 #include "sfx.h"
 #include "prefs.h"
 #include "paths.h"
+#include "branding.h"
 
 #ifdef __SWITCH__
 #  include <switch.h>   /* envSetNextLoad for NRO chainloading */
@@ -22,15 +24,17 @@
 static const int   WIN_W       = 1280;
 static const int   WIN_H       = 720;
 #ifdef __SWITCH__
-static const char *DB_PATH     = "sdmc:/emerald/db.json";
-static const char *ROMS_DIR    = "sdmc:/emerald/roms";
-static const char *SAVES_DIR   = "sdmc:/emerald/saves";
-static const char *CORES_DIR   = "sdmc:/emerald/cores";
+static const char *DB_PATH       = "sdmc:/emerald/db.json";
+static const char *ROMS_DIR      = "sdmc:/emerald/roms";
+static const char *SAVES_DIR     = "sdmc:/emerald/saves";
+static const char *CORES_DIR     = "sdmc:/emerald/cores";
+static const char *BRANDING_PATH = "sdmc:/emerald/branding.json";
 #else
-static const char *DB_PATH     = "db.json";
-static const char *ROMS_DIR    = "roms";
-static const char *SAVES_DIR   = "saves";
-static const char *CORES_DIR   = "cores";
+static const char *DB_PATH       = "db.json";
+static const char *ROMS_DIR      = "roms";
+static const char *SAVES_DIR     = "saves";
+static const char *CORES_DIR     = "cores";
+static const char *BRANDING_PATH = "branding.json";
 #endif
 
 /* ── State ───────────────────────────────────────────────────────────── */
@@ -39,6 +43,7 @@ static AppState s_state          = STATE_SPLASH;
 static Uint32   s_splash_start   = 0;
 static Uint32   s_launcher_start = 0;
 
+static Branding      s_branding;
 static SDL_Window   *s_window   = nullptr;
 static SDL_GLContext s_glctx    = nullptr;
 static SDL_AudioDeviceID s_audio_dev = 0;
@@ -551,12 +556,19 @@ int main(int argc, char *argv[]) {
 #else
     const Uint32 s_win_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
 #endif
-    s_window = SDL_CreateWindow("Emerald Launcher",
+    s_branding = branding_load(BRANDING_PATH);
+    s_window = SDL_CreateWindow(s_branding.app_name.c_str(),
                                 SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                 WIN_W, WIN_H, s_win_flags);
     if (!s_window) {
         fprintf(stderr,"SDL_CreateWindow: %s\n",SDL_GetError());
         return 1;
+    }
+    if (!s_branding.icon_path.empty()) {
+        SDL_Surface *icon = IMG_Load(s_branding.icon_path.c_str());
+        if (icon) { SDL_SetWindowIcon(s_window, icon); SDL_FreeSurface(icon); }
+        else fprintf(stderr, "branding: couldn't load window icon '%s': %s\n",
+                     s_branding.icon_path.c_str(), IMG_GetError());
     }
 
     s_glctx = SDL_GL_CreateContext(s_window);
@@ -583,10 +595,18 @@ int main(int argc, char *argv[]) {
     sfx_init();
     prefs_load();
 
-    if (!ui_load_font(ASSET("alagard.ttf")))
-        fprintf(stderr, "ui: alagard.ttf not found — using fallback bitmap font\n");
-    if (!ui_load_bg(ASSET("imgs/fabric-green.jpg")))
-        fprintf(stderr, "ui: imgs/fabric-green.jpg not found — no background image\n");
+    const std::string font_path = s_branding.font_path.empty()
+        ? ASSET("alagard.ttf") : s_branding.font_path;
+    if (!ui_load_font(font_path.c_str()))
+        fprintf(stderr, "ui: %s not found — using fallback bitmap font\n", font_path.c_str());
+
+    const std::string bg_path = s_branding.background_path.empty()
+        ? ASSET("imgs/fabric-green.jpg") : s_branding.background_path;
+    if (!ui_load_bg(bg_path.c_str()))
+        fprintf(stderr, "ui: %s not found — no background image\n", bg_path.c_str());
+
+    const std::string splash_path = s_branding.splash_path.empty()
+        ? ASSET("imgs/BOOTLOGO.png") : s_branding.splash_path;
 
     /* Ensure saves directory exists (best-effort) */
 #ifdef _WIN32
@@ -631,7 +651,7 @@ int main(int argc, char *argv[]) {
             glClear(GL_COLOR_BUFFER_BIT);
             ui_begin();
             ui_image(WIN_W * 0.25f, WIN_H * 0.25f, WIN_W * 0.5f, WIN_H * 0.5f,
-                     ASSET("imgs/BOOTLOGO.png"), 1.0f);
+                     splash_path.c_str(), 1.0f);
             if (dark > 0.0f)
                 ui_rect(0.0f, 0.0f, (float)WIN_W, (float)WIN_H, 0.0f, 0.0f, 0.0f, dark);
             ui_end();
