@@ -8,11 +8,15 @@ set(EL_SOURCES
     src/main.cpp
     src/db.cpp
     src/launcher.cpp
+    src/shelf.cpp
+    src/boxart.cpp
+    src/uikit.cpp
     src/prefs.cpp
     src/branding.cpp
     src/overlay.c
     src/core.c
     src/renderer.c
+    src/scene3d.c
     src/ui.c
     src/gl.c
     src/sfx.c
@@ -136,7 +140,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
     nx_generate_nacp(emerald_launcher.nacp
         NAME    "Emerald Launcher"
         AUTHOR  "IgnacioLeivaP"
-        VERSION "1.0.0")
+        VERSION "2.0.0")
 
     nx_create_nro(emerald_launcher
         NACP  emerald_launcher.nacp
@@ -147,10 +151,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
 #  PC (Windows / Linux desktop OpenGL 3.3)
 # ======================================================================
 else()
+    # EL_GLES: render with OpenGL ES 3.0 exactly like the Switch build does
+    # (needs a GLES driver, e.g. Mesa). Handy to check the Switch render path
+    # — shaders included — on a PC.
+    option(EL_GLES "Desktop build using OpenGL ES 3.0 (mirrors the Switch renderer)" OFF)
+
     find_package(SDL2 REQUIRED)
     find_package(SDL2_ttf REQUIRED)
     find_package(SDL2_image REQUIRED)
-    find_package(OpenGL REQUIRED)
 
     add_executable(emerald_launcher ${EL_SOURCES})
     target_include_directories(emerald_launcher PRIVATE src include)
@@ -158,8 +166,15 @@ else()
         SDL2::SDL2main
         SDL2::SDL2
         SDL2_ttf::SDL2_ttf
-        SDL2_image::SDL2_image
-        OpenGL::GL)
+        SDL2_image::SDL2_image)
+    if(EL_GLES)
+        find_library(GLESV2_LIBRARY NAMES GLESv2 REQUIRED)
+        target_compile_definitions(emerald_launcher PRIVATE EL_GLES=1)
+        target_link_libraries(emerald_launcher PRIVATE ${GLESV2_LIBRARY})
+    else()
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(emerald_launcher PRIVATE OpenGL::GL)
+    endif()
 
     if(WIN32)
         target_sources(emerald_launcher PRIVATE resources.rc)

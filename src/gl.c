@@ -18,7 +18,7 @@ void *gl_get_proc_address(const char *name) {
 }
 
 /* ── Desktop OpenGL 3.3: runtime function-pointer loading (PC only) ────── */
-#ifndef NINTENDO_SWITCH
+#ifndef EL_GLES_API
 
 PFN_CreateShader            gl_CreateShader;
 PFN_ShaderSource            gl_ShaderSource;
@@ -62,6 +62,12 @@ PFN_FramebufferRenderbuffer gl_FramebufferRenderbuffer;
 PFN_DeleteRenderbuffers     gl_DeleteRenderbuffers;
 PFN_CheckFramebufferStatus  gl_CheckFramebufferStatus;
 PFN_BlitFramebuffer         gl_BlitFramebuffer;
+PFN_UniformMatrix4fv        gl_UniformMatrix4fv;
+PFN_Uniform3f               gl_Uniform3f;
+PFN_Uniform4f               gl_Uniform4f;
+PFN_GenerateMipmap          gl_GenerateMipmap;
+PFN_RenderbufferStorageMultisample gl_RenderbufferStorageMultisample;
+PFN_BlendFuncSeparate       gl_BlendFuncSeparate;
 
 #define LOAD(T, var, name)                                                  \
     do {                                                                    \
@@ -114,7 +120,14 @@ int gl_load(void) {
     LOAD(PFN_DeleteRenderbuffers,     gl_DeleteRenderbuffers,     "glDeleteRenderbuffers");
     LOAD(PFN_CheckFramebufferStatus,  gl_CheckFramebufferStatus,  "glCheckFramebufferStatus");
     LOAD(PFN_BlitFramebuffer,         gl_BlitFramebuffer,         "glBlitFramebuffer");
+    LOAD(PFN_UniformMatrix4fv,        gl_UniformMatrix4fv,        "glUniformMatrix4fv");
+    LOAD(PFN_Uniform3f,               gl_Uniform3f,               "glUniform3f");
+    LOAD(PFN_Uniform4f,               gl_Uniform4f,               "glUniform4f");
+    LOAD(PFN_GenerateMipmap,          gl_GenerateMipmap,          "glGenerateMipmap");
+    LOAD(PFN_RenderbufferStorageMultisample, gl_RenderbufferStorageMultisample,
+                                                                  "glRenderbufferStorageMultisample");
+    LOAD(PFN_BlendFuncSeparate,       gl_BlendFuncSeparate,       "glBlendFuncSeparate");
     return ok;
 }
 
-#endif /* NINTENDO_SWITCH */
+#endif /* EL_GLES_API */

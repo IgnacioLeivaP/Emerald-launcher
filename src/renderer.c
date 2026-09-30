@@ -584,7 +584,7 @@ void renderer_set_frame(const void *data, unsigned w, unsigned h,
     s_frame_h = h;
     glBindTexture(GL_TEXTURE_2D, s_tex);
     if (pixel_fmt == RETRO_PIXEL_FORMAT_RGB565) {
-#ifdef NINTENDO_SWITCH
+#ifdef EL_GLES_API
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_BLUE);
 #endif
@@ -593,7 +593,7 @@ void renderer_set_frame(const void *data, unsigned w, unsigned h,
                      GL_RGB, GL_UNSIGNED_SHORT_5_6_5, data);
     } else {
         glPixelStorei(GL_UNPACK_ROW_LENGTH, (GLint)(pitch / 4));
-#ifdef NINTENDO_SWITCH
+#ifdef EL_GLES_API
         /* GLES 3.0 has no GL_BGRA upload format. XRGB8888 is B,G,R,X in memory,
            so upload the bytes as RGBA and swizzle R<->B to correct the channels. */
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_BLUE);

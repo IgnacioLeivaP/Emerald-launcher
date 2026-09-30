@@ -132,12 +132,6 @@ static void scan_recursive(const char *dir,
 }
 #endif
 
-static bool file_exists(const std::string &path) {
-    FILE *f = fopen(path.c_str(), "rb");
-    if (f) { fclose(f); return true; }
-    return false;
-}
-
 /* ── Main loader ──────────────────────────────────────────────────────── */
 std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                                const char *saves_dir, const char *cores_dir) {
@@ -234,6 +228,7 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
             g.year        = ginfo.value("year",0);
             g.sequential  = ginfo.value("sequential",false);
             g.logo_path   = content_path(ginfo.value("logo",""));
+            g.cover_path  = content_path(ginfo.value("cover",""));
 
             /* Core override at group level */
             std::string group_core = ginfo.value("core","");
@@ -258,6 +253,7 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                     e.platform     = einfo.value("platform","");
                     e.version_desc = einfo.value("version_desc","");
                     e.logo_path    = content_path(einfo.value("logo",""));
+                    e.cover_path   = content_path(einfo.value("cover",""));
                     if (einfo.contains("screenshots"))
                         for (auto &s : einfo["screenshots"])
                             e.screenshots.push_back(content_path(s.get<std::string>()));
@@ -348,7 +344,8 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
 
 bool db_entry_unlocked(const GameGroup &g, int idx) {
     if (!g.sequential || idx==0) return true;
-    /* Unlocked if previous entry's srm file exists */
-    const GameEntry &prev = g.entries[idx-1];
-    return file_exists(prev.srm_path);
+    /* A week unlocks once the previous one was completed, i.e. progress was
+       advanced past it with the in-game "next week" prompt. (Just having
+       started the previous week — its .srm existing — isn't enough.) */
+    return idx <= db_progress_get(g.key);
 }

@@ -75,6 +75,19 @@ static void recompute_viewport(void) {
     renderer_set_screen_viewport(s_vpx, s_vpy, s_vpw, s_vph);
 }
 
+/* Window (mouse) coordinates → the logical 1280x720 space of the UI. */
+static void window_to_logical(int wx, int wy, float *lx, float *ly) {
+    int ww = WIN_W, wh = WIN_H, dw = WIN_W, dh = WIN_H;
+    if (s_window) {
+        SDL_GetWindowSize(s_window, &ww, &wh);
+        SDL_GL_GetDrawableSize(s_window, &dw, &dh);
+    }
+    float px = (float)wx * (float)dw / (float)(ww > 0 ? ww : 1);   /* HiDPI */
+    float py = (float)wy * (float)dh / (float)(wh > 0 ? wh : 1);
+    *lx = (px - (float)s_vpx) * (float)WIN_W / (float)(s_vpw > 0 ? s_vpw : 1);
+    *ly = (py - (float)s_vpy) * (float)WIN_H / (float)(s_vph > 0 ? s_vph : 1);
+}
+
 /* F11 = maximize / restore. True fullscreen (SDL_SetWindowFullscreen and
    borderless-cover) both oscillate against Windows' fullscreen optimizations on
    this setup, so we use plain maximize, which is reliable. */
@@ -107,6 +120,7 @@ static bool s_keys[512]   = {};
 static bool s_btns[32]    = {};
 static int  s_axes[8]     = {};   /* SDL_CONTROLLER_AXIS_* values */
 static int  s_stick_dir   = 0;    /* launcher menu Y: -1 up / 1 down / 0 center */
+static int  s_stick_lx    = 0;    /* launcher menu X: -1 left / 1 right / 0 center */
 static int  s_stick_dir_x = 0;    /* overlay menu X:  -1 left / 1 right / 0 center */
 #define STICK_DEAD 12000
 
@@ -211,6 +225,7 @@ static bool launch_game(const LaunchRequest &req) {
     if (req.external) { launch_external(req); return true; }
 
     carry_save_if_needed(req);
+    s_launcher.on_game_start();   /* free the 3D shelf's render targets */
 
     if (!core_load(req.core_dll.c_str())) {
         fprintf(stderr,"Cannot load core: %s\n", req.core_dll.c_str());
@@ -303,8 +318,10 @@ static void advance_week(void) {
     /* We stored enough in s_current to reconstruct; db.h gives us db_load
        but we don't want to re-read disk here. Instead, stop and re-launch. */
 
-    /* Save progress so launcher picks up next week */
-    db_progress_set(s_current.group_key, next_idx);
+    /* Save progress so launcher picks up next week. Replaying an earlier week
+       (picked from the week list) must not move progress backwards. */
+    if (next_idx > db_progress_get(s_current.group_key))
+        db_progress_set(s_current.group_key, next_idx);
 
     /* Unload current core */
     core_save_sram();
@@ -332,6 +349,10 @@ static void advance_week(void) {
         req.group_key      = g.key;
         req.entry_idx      = next_idx;
         req.is_sequential  = true;
+        /* Keep watching for "week done" in the new week too, so the chain
+           continues in-game (week 2 → 3 → 4) without a trip to the launcher. */
+        req.week_complete_mask = e.week_complete_mask;
+        req.has_next_week      = next_idx + 1 < (int)g.entries.size();
         if (!launch_game(req)) {
             fprintf(stderr,"Failed to launch week %d\n", next_idx+1);
             s_state = STATE_LAUNCHER;
@@ -370,14 +391,24 @@ static bool handle_event(const SDL_Event &ev) {
     if (ev.type == SDL_CONTROLLERAXISMOTION) {
         if (ev.caxis.axis >= 0 && ev.caxis.axis < 8)
             s_axes[ev.caxis.axis] = ev.caxis.value;
-        if (s_state == STATE_LAUNCHER && ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
+        if (s_state == STATE_LAUNCHER) {
+            /* Left stick acts as the d-pad (press + release, so holding it
+               auto-repeats); the right stick turns the focused 3D box. */
             int nd = (ev.caxis.value < -STICK_DEAD) ? -1
                    : (ev.caxis.value >  STICK_DEAD) ?  1 : 0;
-            if (nd != s_stick_dir) {
+            if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY && nd != s_stick_dir) {
+                if (s_stick_dir) s_launcher.handle_button(s_stick_dir < 0 ? 11 : 12, false);
                 s_stick_dir = nd;
-                if      (nd == -1) s_launcher.handle_button(11, true);  /* up   */
-                else if (nd ==  1) s_launcher.handle_button(12, true);  /* down */
+                if (nd) s_launcher.handle_button(nd < 0 ? 11 : 12, true);   /* up / down */
             }
+            if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX && nd != s_stick_lx) {
+                if (s_stick_lx) s_launcher.handle_button(s_stick_lx < 0 ? 13 : 14, false);
+                s_stick_lx = nd;
+                if (nd) s_launcher.handle_button(nd < 0 ? 13 : 14, true);   /* left / right */
+            }
+            if (ev.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX ||
+                ev.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY)
+                s_launcher.handle_axis(ev.caxis.axis, ev.caxis.value);
         }
         /* In-game overlay (Yes/No) navigates left/right with the stick. */
         if (s_state == STATE_PLAYING && overlay_get_state() != OVERLAY_HIDDEN
@@ -393,9 +424,28 @@ static bool handle_event(const SDL_Event &ev) {
         return true;
     }
 
+    /* Controllers plugged in later work everywhere, not only in-game. */
+    if (ev.type == SDL_CONTROLLERDEVICEADDED) {
+        SDL_GameControllerOpen(ev.cdevice.which);
+        return true;
+    }
+
     if (s_state == STATE_SPLASH) return true;
 
     if (s_state == STATE_LAUNCHER) {
+        if (ev.type == SDL_MOUSEBUTTONDOWN || ev.type == SDL_MOUSEBUTTONUP) {
+            float lx, ly;
+            window_to_logical(ev.button.x, ev.button.y, &lx, &ly);
+            s_launcher.handle_mouse_button(lx, ly, ev.button.button,
+                                           ev.type == SDL_MOUSEBUTTONDOWN);
+        }
+        if (ev.type == SDL_MOUSEMOTION) {
+            float lx, ly;
+            window_to_logical(ev.motion.x, ev.motion.y, &lx, &ly);
+            s_launcher.handle_mouse_motion(lx, ly);
+        }
+        if (ev.type == SDL_MOUSEWHEEL)
+            s_launcher.handle_mouse_wheel(ev.wheel.y);
         if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
             bool down = (ev.type == SDL_KEYDOWN);
             s_keys[ev.key.keysym.scancode] = down;
@@ -467,9 +517,6 @@ static bool handle_event(const SDL_Event &ev) {
         stop_game();
     }
 
-    if (ev.type == SDL_CONTROLLERDEVICEADDED)
-        SDL_GameControllerOpen(ev.cdevice.which);
-
     return true;
 }
 
@@ -487,6 +534,20 @@ static void frame_wait(void) {
         if (remain > 2000.0) SDL_Delay(1);
     }
     s_last_frame_tick = SDL_GetPerformanceCounter();
+}
+
+/* Menus (splash + launcher) run at 60 fps instead of spinning the GPU. */
+static void menu_frame_wait(void) {
+    static Uint64 last = 0;
+    const double budget = 1000000.0 / 60.0;
+    for (;;) {
+        Uint64 now = SDL_GetPerformanceCounter();
+        double elapsed = last ? (double)(now - last) * 1000000.0 / (double)s_perf_freq : budget;
+        double remain = budget - elapsed;
+        if (remain <= 0.0) break;
+        if (remain > 2000.0) SDL_Delay(1);
+    }
+    last = SDL_GetPerformanceCounter();
 }
 
 /* ── Main loop tick ──────────────────────────────────────────────────── */
@@ -540,7 +601,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-#ifdef __SWITCH__
+#if defined(__SWITCH__) || defined(EL_GLES)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
@@ -617,6 +678,7 @@ int main(int argc, char *argv[]) {
 
     /* Load game database */
     auto groups = db_load(DB_PATH, ROMS_DIR, SAVES_DIR, CORES_DIR);
+    s_launcher.set_app_name(s_branding.app_name);
     s_launcher.load(std::move(groups));
 
     /* Open any connected gamepads */
@@ -655,6 +717,7 @@ int main(int argc, char *argv[]) {
             if (dark > 0.0f)
                 ui_rect(0.0f, 0.0f, (float)WIN_W, (float)WIN_H, 0.0f, 0.0f, 0.0f, dark);
             ui_end();
+            s_launcher.prewarm();   /* build the 3D box art while the logo shows */
 
             if (e >= 3000) {
                 s_state          = STATE_LAUNCHER;
@@ -685,10 +748,12 @@ int main(int argc, char *argv[]) {
         }
 
         SDL_GL_SwapWindow(s_window);
+        if (s_state != STATE_PLAYING) menu_frame_wait();
 
         if (s_quit_requested) running = false;  /* external app launched */
     }
 
+    s_launcher.on_quit();
     if (s_state == STATE_PLAYING) stop_game();
     if (s_audio_dev) SDL_CloseAudioDevice(s_audio_dev);
     sfx_shutdown();

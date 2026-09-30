@@ -52,10 +52,14 @@ Archivos:
   db.json   Base de datos de juegos. Edítala con el editor en  maker/
   cores/    Emuladores (no tocar)
 
-Controles del launcher:
-  Flechas   Navegar      Enter  Seleccionar
-  Tab       Ajustes      F11    Maximizar ventana
-  Esc       En juego: volver al launcher
+Controles del launcher (estante 3D):
+  Izq./Der.  Recorrer juegos       Enter  Versiones / Jugar
+  Espacio    Ver la caja (girarla) Esc    Volver
+  Tab        Ajustes: shader, borrar partidas, vista 3D o lista clásica
+  F11        Maximizar ventana     Ratón: clic, rueda y arrastrar
+  En juego:  Esc = volver al launcher
+
+  db.json admite "cover" (juego o versión): imagen propia para el frente de la caja.
 EOF
 
 echo ">> Done -> $DIST/  ($(du -sh "$DIST" 2>/dev/null | cut -f1))"

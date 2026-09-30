@@ -380,6 +380,11 @@ function groupCard(key,g,gi,total){
   body.append(el('div',{class:'row'},
     fileField('Logo (ruta)', g.logo, v=>g.logo=v, {grow:1, exts:IMG_EXT, ph:'roms/Z1/logo.png'})));
   const lp=imgPrev(g.logo,'logo-prev'); if(lp) body.append(lp);
+  body.append(el('div',{class:'row'},
+    fileField('Carátula 3D (opcional)', g.cover, v=>{ if(v)g.cover=v; else delete g.cover; }, {grow:1, exts:IMG_EXT, ph:'roms/Z1/caja.png'})));
+  const cp=imgPrev(g.cover,'logo-prev'); if(cp) body.append(cp);
+  body.append(el('div',{class:'hint',style:'margin:-2px 0 8px'},
+    'Frente de la caja en la vista 3D, compartido por todas sus versiones. Si queda vacío, el launcher genera la caja con el logo y la primera captura.'));
   body.append(field('Descripción', g.description, v=>g.description=v, {area:1, grow:1}));
   body.append(el('div',{class:'row'},
     el('label',{class:'chk'}, checkbox(g.sequential, v=>g.sequential=v), 'Secuencial (semanas, tipo AST)'),
@@ -437,6 +442,11 @@ function entryCard(g,e,ei){
   card.append(el('div',{class:'row'},
     fileField('Logo de versión (opcional)', e.logo, v=>{ if(v)e.logo=v; else delete e.logo; }, {grow:1, exts:IMG_EXT})));
   const lp=imgPrev(e.logo,'logo-prev'); if(lp) card.append(lp);
+
+  // 3D box cover
+  card.append(el('div',{class:'row'},
+    fileField('Carátula 3D de la versión (opcional)', e.cover, v=>{ if(v)e.cover=v; else delete e.cover; }, {grow:1, exts:IMG_EXT})));
+  const ecp=imgPrev(e.cover,'logo-prev'); if(ecp) card.append(ecp);
 
   // description
   card.append(field('Descripción de versión', e.version_desc, v=>e.version_desc=v, {area:1}));

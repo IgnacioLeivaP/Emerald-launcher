@@ -4,6 +4,7 @@
 #include "prefs.h"
 #include "paths.h"
 #include <SDL.h>
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <cmath>
@@ -25,10 +26,14 @@ static const char *SHADER_NAMES[] = {
     "Bloom (glow on brights)"
 };
 static const int NUM_SHADERS = 6;
+/* Settings rows: the shaders, then "Clear Save Data", then the launcher view. */
+static const int ROW_CLEAR   = NUM_SHADERS;
+static const int ROW_VIEW    = NUM_SHADERS + 1;
+static const int CONFIG_ROWS = NUM_SHADERS + 2;
 
 /* Layout constants (1280x720) */
-static const float WIN_W  = 1280.0f;
-static const float WIN_H  =  720.0f;
+static const float WIN_W  = UI_W;
+static const float WIN_H  = UI_H;
 static const float LEFT_W =  320.0f;
 static const float PAD    =   20.0f;
 
@@ -36,22 +41,38 @@ static const float PAD    =   20.0f;
 static const float CARD_W = 220.0f;
 static const float CARD_H = 140.0f;
 
-/* Color palette */
-#define GOLD_R  0.95f
-#define GOLD_G  0.78f
-#define GOLD_B  0.15f
-#define GOLD_DIM_R 0.70f
-#define GOLD_DIM_G 0.56f
-#define GOLD_DIM_B 0.10f
-#define PANEL_R 0.03f
-#define PANEL_G 0.07f
-#define PANEL_B 0.05f
+/* SDL game-controller buttons (positional, Xbox-style numbering). Nintendo
+   A (right) = SDL 1, B (bottom) = SDL 0 — the opposite of Xbox. */
+#ifdef __SWITCH__
+static const int BTN_A = 1, BTN_B = 0;
+#else
+static const int BTN_A = 0, BTN_B = 1;
+#endif
+static const int BTN_LEFT_FACE = 2;   /* Nintendo Y / Xbox X: settings */
+static const int BTN_TOP_FACE  = 3;   /* Nintendo X / Xbox Y: look at box */
+static const int BTN_START = 6, BTN_L = 9, BTN_R = 10;
+static const int BTN_UP = 11, BTN_DOWN = 12, BTN_LEFT = 13, BTN_RIGHT = 14;
+
+static const int STICK_DEAD = 8000;
 
 void Launcher::load(std::vector<GameGroup> groups) {
     m_groups   = std::move(groups);
     m_selected = 0;
     m_submenu  = -1;
     m_sub_sel  = 0;
+    m_use_3d   = prefs_get_view_3d();
+
+    /* Resume where the user left off. */
+    const std::string last = prefs_get_last_group();
+    for (size_t i = 0; i < m_groups.size(); i++)
+        if (m_groups[i].key == last) { m_selected = (int)i; break; }
+
+    m_shelf.attach(&m_groups);
+    for (size_t i = 0; i < m_groups.size(); i++) {
+        int e = prefs_get_last_entry(m_groups[i].key);
+        if (e >= 0 && e < (int)m_groups[i].entries.size()) m_shelf.set_front((int)i, e);
+    }
+    m_shelf.select(m_selected);
 }
 
 LaunchRequest Launcher::poll_launch(void) {
@@ -60,113 +81,238 @@ LaunchRequest Launcher::poll_launch(void) {
     return r;
 }
 
+bool Launcher::ensure_3d(void) {
+    if (!m_3d_tried) {
+        m_3d_tried = true;
+        m_3d_ok = m_shelf.init();
+        if (!m_3d_ok) fprintf(stderr, "launcher: 3D shelf unavailable, using the classic view\n");
+    }
+    return m_3d_ok;
+}
+
+void Launcher::set_view_3d(bool on) {
+    if (on && !ensure_3d()) on = false;
+    if (on && !in_3d()) {
+        m_shelf.select(m_submenu >= 0 ? m_submenu : m_selected);
+    } else if (!on && in_3d()) {
+        m_selected = m_shelf.selected();
+        m_submenu  = -1;
+    }
+    m_use_3d = on;
+    prefs_set_view_3d(on);
+    prefs_save();
+}
+
+void Launcher::prewarm(void) {
+    if (m_groups.empty() || !m_use_3d || !ensure_3d()) return;
+    m_shelf.prewarm(12.0);
+}
+
+void Launcher::on_game_start(void) {
+    if (m_3d_ok) m_shelf.release_gpu();
+}
+
+void Launcher::on_quit(void) {
+    if (m_groups.empty()) return;
+    int g = in_3d() ? m_shelf.selected() : (m_submenu >= 0 ? m_submenu : m_selected);
+    if (g >= 0 && g < (int)m_groups.size()) {
+        prefs_set_last_group(m_groups[(size_t)g].key);
+        prefs_save();
+    }
+}
+
+LaunchRequest Launcher::make_request(int gi, int idx) const {
+    const GameGroup &g = m_groups[(size_t)gi];
+    const GameEntry &e = g.entries[(size_t)idx];
+    LaunchRequest r;
+    r.valid              = true;
+    r.rom_path           = e.rom_path;
+    r.core_dll           = e.core_dll;
+    r.srm_path           = e.srm_path;
+    r.carry_srm_from     = e.carry_srm_from;
+    r.group_key          = g.key;
+    r.entry_idx          = idx;
+    r.is_sequential      = g.sequential;
+    r.week_complete_mask = g.sequential ? e.week_complete_mask : 0;
+    r.has_next_week      = g.sequential && (idx + 1 < (int)g.entries.size());
+    r.external           = e.external;
+    r.exec_path          = e.exec_path;
+    r.exec_argv          = e.exec_argv;
+    r.keep_open          = e.keep_open;
+    return r;
+}
+
+/* Remember the game and the version played (it becomes the front of its stack). */
+void Launcher::remember(int g, int entry) {
+    const GameGroup &grp = m_groups[(size_t)g];
+    prefs_set_last_group(grp.key);
+    if (!grp.sequential) {
+        prefs_set_last_entry(grp.key, entry);
+        m_shelf.set_front(g, entry);
+    }
+    prefs_save();
+}
+
 /* ── Input ──────────────────────────────────────────────────────────── */
 void Launcher::handle_key(int key, bool down) {
     if (!down) return;
-
-    if (m_config_open) {
-        if (m_clear_confirm) {
-            if (key==13) {
-                /* Confirm clear: delete all SRM files for the group */
-                const GameGroup &g = m_groups[m_config_group];
-                for (auto &e : g.entries)
-                    if (!e.srm_path.empty()) delete_file(e.srm_path.c_str());
-                if (g.sequential) db_progress_set(g.key, 0);
-                m_clear_confirm = false;
-                sfx_play_confirm();
-            }
-            if (key==27 || key==8) { m_clear_confirm = false; sfx_play_back(); }
-            return;
-        }
-        int n = NUM_SHADERS + 1; /* shader rows + clear row */
-        if (key==1073741906 || key=='w') { m_config_sel=(m_config_sel-1+n)%n; sfx_play_nav(); }
-        if (key==1073741905 || key=='s') { m_config_sel=(m_config_sel+1)%n;   sfx_play_nav(); }
-        if (key==13) {
-            if (m_config_sel < NUM_SHADERS) {
-                prefs_set_shader(m_groups[m_config_group].key, m_config_sel);
-                prefs_save();
-                sfx_play_confirm();
-            } else {
-                m_clear_confirm = true;
-                sfx_play_confirm();
-            }
-        }
-        if (key==27 || key==8) { close_config(); sfx_play_back(); }
-        return;
-    }
-
-    if (m_submenu < 0) {
-        if (key==1073741906 || key=='w') { m_selected=(m_selected-1+(int)m_groups.size())%(int)m_groups.size(); m_arrow_dir=+1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (key==1073741905 || key=='s') { m_selected=(m_selected+1)%(int)m_groups.size();                      m_arrow_dir=-1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (key==13) { confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); }
-        if (key==9) { open_config(); sfx_play_confirm(); }  /* Tab */
-    } else {
-        const GameGroup &g = m_groups[m_submenu];
-        if (key==1073741906 || key=='w') { m_sub_sel=(m_sub_sel-1+(int)g.entries.size())%(int)g.entries.size(); m_arrow_dir=+1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (key==1073741905 || key=='s') { m_sub_sel=(m_sub_sel+1)%(int)g.entries.size();                       m_arrow_dir=-1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (key==13) { confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); }
-        if (key==27 || key==8) { m_submenu=-1; sfx_play_back(); }
-        if (key==9) { open_config(); sfx_play_confirm(); }  /* Tab */
+    m_style = STYLE_KEYBOARD;
+    switch (key) {
+    case SDLK_UP:    case 'w': dispatch(IN_UP);    break;
+    case SDLK_DOWN:  case 's': dispatch(IN_DOWN);  break;
+    case SDLK_LEFT:  case 'a': dispatch(IN_LEFT);  break;
+    case SDLK_RIGHT: case 'd': dispatch(IN_RIGHT); break;
+    case SDLK_RETURN: case SDLK_KP_ENTER: dispatch(IN_CONFIRM); break;
+    case SDLK_ESCAPE: case SDLK_BACKSPACE: dispatch(IN_BACK); break;
+    case SDLK_TAB:   dispatch(IN_SETTINGS); break;
+    case SDLK_SPACE: case 'i': dispatch(IN_INSPECT); break;
+    case SDLK_PAGEUP:   case 'q': dispatch(IN_PAGE_PREV); break;
+    case SDLK_PAGEDOWN: case 'e': dispatch(IN_PAGE_NEXT); break;
+    default: break;
     }
 }
 
 void Launcher::handle_button(int btn, bool down) {
-    if (!down) return;
-    /* Switch labels A/B by physical position opposite to SDL's Xbox layout:
-       Nintendo A (right) = SDL button 1, Nintendo B (bottom) = SDL button 0. */
 #ifdef __SWITCH__
-    const int BTN_A=1, BTN_B=0, BTN_Y=2, BTN_UP=11, BTN_DOWN=12;
+    m_style = STYLE_NINTENDO;
 #else
-    const int BTN_A=0, BTN_B=1, BTN_Y=2, BTN_UP=11, BTN_DOWN=12;
+    m_style = STYLE_XBOX;
 #endif
-
-    if (m_config_open) {
-        if (m_clear_confirm) {
-            if (btn==BTN_A) {
-                const GameGroup &g = m_groups[m_config_group];
-                for (auto &e : g.entries)
-                    if (!e.srm_path.empty()) delete_file(e.srm_path.c_str());
-                if (g.sequential) db_progress_set(g.key, 0);
-                m_clear_confirm = false;
-                sfx_play_confirm();
-            }
-            if (btn==BTN_B) { m_clear_confirm = false; sfx_play_back(); }
-            return;
-        }
-        int n = NUM_SHADERS + 1;
-        if (btn==BTN_UP)   { m_config_sel=(m_config_sel-1+n)%n; sfx_play_nav(); }
-        if (btn==BTN_DOWN) { m_config_sel=(m_config_sel+1)%n;   sfx_play_nav(); }
-        if (btn==BTN_A) {
-            if (m_config_sel < NUM_SHADERS) {
-                prefs_set_shader(m_groups[m_config_group].key, m_config_sel);
-                prefs_save();
-                sfx_play_confirm();
-            } else {
-                m_clear_confirm = true;
-                sfx_play_confirm();
-            }
-        }
-        if (btn==BTN_B || btn==BTN_Y) { close_config(); sfx_play_back(); }
+    if (!down) {
+        if (btn == m_hold_btn) m_hold_btn = -1;
         return;
     }
+    UiInput in;
+    bool repeat = false;
+    if      (btn == BTN_UP)    { in = IN_UP;    repeat = true; }
+    else if (btn == BTN_DOWN)  { in = IN_DOWN;  repeat = true; }
+    else if (btn == BTN_LEFT)  { in = IN_LEFT;  repeat = true; }
+    else if (btn == BTN_RIGHT) { in = IN_RIGHT; repeat = true; }
+    else if (btn == BTN_A)     in = IN_CONFIRM;
+    else if (btn == BTN_B)     in = IN_BACK;
+    else if (btn == BTN_LEFT_FACE || btn == BTN_START) in = IN_SETTINGS;
+    else if (btn == BTN_TOP_FACE) in = IN_INSPECT;
+    else if (btn == BTN_L)     in = IN_PAGE_PREV;
+    else if (btn == BTN_R)     in = IN_PAGE_NEXT;
+    else return;
+    if (repeat) {
+        m_hold_btn  = btn;
+        m_hold_next = SDL_GetTicks() + 380;
+    }
+    dispatch(in);
+}
 
-    if (m_submenu < 0) {
-        if (btn==BTN_UP)   { m_selected=(m_selected-1+(int)m_groups.size())%(int)m_groups.size(); m_arrow_dir=+1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (btn==BTN_DOWN) { m_selected=(m_selected+1)%(int)m_groups.size();                      m_arrow_dir=-1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (btn==BTN_A)    { confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); }
-        if (btn==BTN_Y)    { open_config(); sfx_play_confirm(); }
-    } else {
-        const GameGroup &g = m_groups[m_submenu];
-        if (btn==BTN_UP)   { m_sub_sel=(m_sub_sel-1+(int)g.entries.size())%(int)g.entries.size(); m_arrow_dir=+1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (btn==BTN_DOWN) { m_sub_sel=(m_sub_sel+1)%(int)g.entries.size();                       m_arrow_dir=-1; m_arrow_time=SDL_GetTicks(); sfx_play_nav(); }
-        if (btn==BTN_A)    { confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); }
-        if (btn==BTN_B)    { m_submenu=-1; sfx_play_back(); }
-        if (btn==BTN_Y)    { open_config(); sfx_play_confirm(); }
+void Launcher::handle_axis(int axis, int value) {
+    float v = 0.0f;
+    if (value > STICK_DEAD)       v = (float)(value - STICK_DEAD) / (32767.0f - STICK_DEAD);
+    else if (value < -STICK_DEAD) v = (float)(value + STICK_DEAD) / (32768.0f - STICK_DEAD);
+    if (v > 1.0f) v = 1.0f;
+    if (v < -1.0f) v = -1.0f;
+    if (axis == SDL_CONTROLLER_AXIS_RIGHTX) m_rs_x = v;
+    if (axis == SDL_CONTROLLER_AXIS_RIGHTY) m_rs_y = v;
+    if (v != 0.0f) {
+#ifdef __SWITCH__
+        m_style = STYLE_NINTENDO;
+#else
+        m_style = STYLE_XBOX;
+#endif
     }
 }
 
-void Launcher::open_config(void) {
-    m_config_group  = (m_submenu >= 0) ? m_submenu : m_selected;
+void Launcher::handle_mouse_button(float x, float y, int button, bool down) {
+    if (m_groups.empty()) return;
+    if (m_config_open) {
+        if (down && button == 3) { close_config(); sfx_play_back(); }
+        return;
+    }
+    if (in_3d()) m_shelf.mouse_button(x, y, button, down);
+}
+
+void Launcher::handle_mouse_motion(float x, float y) {
+    if (!m_groups.empty() && !m_config_open && in_3d()) m_shelf.mouse_motion(x, y);
+}
+
+void Launcher::handle_mouse_wheel(int dy) {
+    if (m_groups.empty() || dy == 0) return;
+    if (m_config_open)  { dispatch(dy > 0 ? IN_UP : IN_DOWN); return; }
+    if (in_3d())        { m_shelf.mouse_wheel(dy); return; }
+    dispatch(dy > 0 ? IN_UP : IN_DOWN);
+}
+
+void Launcher::dispatch(UiInput in) {
+    if (m_groups.empty()) return;
+    if (m_config_open) { config_input(in); return; }
+    if (in_3d())       { m_shelf.input(in); return; }
+    classic_input(in);
+}
+
+void Launcher::config_input(UiInput in) {
+    if (m_clear_confirm) {
+        if (in == IN_CONFIRM) {
+            /* Confirm clear: delete all SRM files for the group */
+            const GameGroup &g = m_groups[(size_t)m_config_group];
+            for (auto &e : g.entries)
+                if (!e.srm_path.empty()) delete_file(e.srm_path.c_str());
+            if (g.sequential) db_progress_set(g.key, 0);
+            m_clear_confirm = false;
+            sfx_play_confirm();
+        } else if (in == IN_BACK || in == IN_SETTINGS) {
+            m_clear_confirm = false;
+            sfx_play_back();
+        }
+        return;
+    }
+    switch (in) {
+    case IN_UP:   m_config_sel = (m_config_sel - 1 + CONFIG_ROWS) % CONFIG_ROWS; sfx_play_nav(); break;
+    case IN_DOWN: m_config_sel = (m_config_sel + 1) % CONFIG_ROWS;               sfx_play_nav(); break;
+    case IN_LEFT: case IN_RIGHT:
+        if (m_config_sel == ROW_VIEW) { set_view_3d(!in_3d()); sfx_play_confirm(); }
+        break;
+    case IN_CONFIRM:
+        if (m_config_sel < NUM_SHADERS) {
+            prefs_set_shader(m_groups[(size_t)m_config_group].key, m_config_sel);
+            prefs_save();
+        } else if (m_config_sel == ROW_CLEAR) {
+            m_clear_confirm = true;
+        } else {
+            set_view_3d(!in_3d());
+        }
+        sfx_play_confirm();
+        break;
+    case IN_BACK: case IN_SETTINGS:
+        close_config();
+        sfx_play_back();
+        break;
+    default: break;
+    }
+}
+
+void Launcher::classic_input(UiInput in) {
+    const int n = (int)m_groups.size();
+    if (m_submenu < 0) {
+        switch (in) {
+        case IN_UP:   m_selected = (m_selected - 1 + n) % n; m_arrow_dir = +1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
+        case IN_DOWN: m_selected = (m_selected + 1) % n;     m_arrow_dir = -1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
+        case IN_CONFIRM: confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); break;
+        case IN_SETTINGS: open_config(m_selected); sfx_play_confirm(); break;
+        default: break;
+        }
+    } else {
+        const GameGroup &g = m_groups[(size_t)m_submenu];
+        const int e = (int)g.entries.size();
+        switch (in) {
+        case IN_UP:   m_sub_sel = (m_sub_sel - 1 + e) % e; m_arrow_dir = +1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
+        case IN_DOWN: m_sub_sel = (m_sub_sel + 1) % e;     m_arrow_dir = -1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
+        case IN_CONFIRM: confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); break;
+        case IN_BACK: m_submenu = -1; sfx_play_back(); break;
+        case IN_SETTINGS: open_config(m_submenu); sfx_play_confirm(); break;
+        default: break;
+        }
+    }
+}
+
+void Launcher::open_config(int group) {
+    m_config_group  = group;
     m_config_sel    = 0;
     m_clear_confirm = false;
     m_config_open   = true;
@@ -179,69 +325,88 @@ void Launcher::close_config(void) {
 
 void Launcher::confirm_selection(void) {
     if (m_groups.empty()) return;
-    GameGroup &g = m_groups[m_selected];
+    const GameGroup &g = m_groups[(size_t)m_selected];
 
     if (m_submenu < 0) {
         if (g.sequential) {
             int idx = db_progress_get(g.key);
             if (idx >= (int)g.entries.size()) idx = (int)g.entries.size()-1;
-            const GameEntry &e = g.entries[idx];
-            m_pending.valid             = true;
-            m_pending.rom_path          = e.rom_path;
-            m_pending.core_dll          = e.core_dll;
-            m_pending.srm_path          = e.srm_path;
-            m_pending.carry_srm_from    = e.carry_srm_from;
-            m_pending.group_key         = g.key;
-            m_pending.entry_idx         = idx;
-            m_pending.is_sequential     = true;
-            m_pending.week_complete_mask = e.week_complete_mask;
-            m_pending.has_next_week     = (idx+1 < (int)g.entries.size());
-            m_pending.external          = e.external;
-            m_pending.exec_path         = e.exec_path;
-            m_pending.exec_argv         = e.exec_argv;
-            m_pending.keep_open         = e.keep_open;
+            m_pending = make_request(m_selected, idx);
+            remember(m_selected, idx);
         } else if (g.entries.size()==1) {
-            const GameEntry &e = g.entries[0];
-            m_pending.valid             = true;
-            m_pending.rom_path          = e.rom_path;
-            m_pending.core_dll          = e.core_dll;
-            m_pending.srm_path          = e.srm_path;
-            m_pending.carry_srm_from    = e.carry_srm_from;
-            m_pending.group_key         = g.key;
-            m_pending.entry_idx         = 0;
-            m_pending.is_sequential     = false;
-            m_pending.week_complete_mask = 0;
-            m_pending.has_next_week     = false;
-            m_pending.external          = e.external;
-            m_pending.exec_path         = e.exec_path;
-            m_pending.exec_argv         = e.exec_argv;
-            m_pending.keep_open         = e.keep_open;
+            m_pending = make_request(m_selected, 0);
+            remember(m_selected, 0);
         } else {
             m_submenu = m_selected;
-            m_sub_sel = 0;
+            int last = prefs_get_last_entry(g.key);
+            m_sub_sel = (last >= 0 && last < (int)g.entries.size()) ? last : 0;
         }
     } else {
         if (!db_entry_unlocked(g, m_sub_sel)) return;
-        const GameEntry &e = g.entries[m_sub_sel];
-        m_pending.valid             = true;
-        m_pending.rom_path          = e.rom_path;
-        m_pending.core_dll          = e.core_dll;
-        m_pending.srm_path          = e.srm_path;
-        m_pending.carry_srm_from    = e.carry_srm_from;
-        m_pending.group_key         = g.key;
-        m_pending.entry_idx         = m_sub_sel;
-        m_pending.is_sequential     = g.sequential;
-        m_pending.week_complete_mask = e.week_complete_mask;
-        m_pending.has_next_week     = g.sequential && (m_sub_sel+1 < (int)g.entries.size());
-        m_pending.external          = e.external;
-        m_pending.exec_path         = e.exec_path;
-        m_pending.exec_argv         = e.exec_argv;
-        m_pending.keep_open         = e.keep_open;
+        m_pending = make_request(m_selected, m_sub_sel);
+        remember(m_selected, m_sub_sel);
         m_submenu = -1;
     }
 }
 
-/* ── Drawing helpers ────────────────────────────────────────────────── */
+/* ── Drawing ────────────────────────────────────────────────────────── */
+void Launcher::draw(void) {
+    const uint64_t now = SDL_GetPerformanceCounter();
+    double dt = m_last_frame ? (double)(now - m_last_frame) / (double)SDL_GetPerformanceFrequency() : 0.0;
+    m_last_frame = now;
+    const bool resumed = dt > 0.5;      /* first frame back after a game */
+    if (dt > 0.1) dt = 0.1;
+    if (resumed) { m_hold_btn = -1; m_rs_x = m_rs_y = 0.0f; }
+
+    /* Auto-repeat while a d-pad direction (or the stick) is held. */
+    if (m_hold_btn >= 0) {
+        uint32_t t = SDL_GetTicks();
+        if ((int32_t)(t - m_hold_next) >= 0) {
+            m_hold_next = t + 110;
+            int b = m_hold_btn;
+            dispatch(b == BTN_UP ? IN_UP : b == BTN_DOWN ? IN_DOWN : b == BTN_LEFT ? IN_LEFT : IN_RIGHT);
+        }
+    }
+
+    if (m_groups.empty()) {
+        ui_begin();
+        ui_rect(0,0,WIN_W,WIN_H, PANEL_R,PANEL_G,PANEL_B,0.88f);
+        ui_text(PAD, WIN_H/2-16, 2.0f, "No ROMs found. Place roms + db.json and restart.",
+                1.0f,1.0f,1.0f);
+        ui_end();
+        return;
+    }
+
+    if (m_use_3d) ensure_3d();
+    if (!in_3d()) { draw_classic(); return; }
+
+    if (resumed) m_shelf.on_resume();
+    m_shelf.set_right_stick(m_rs_x, m_rs_y);
+    m_shelf.update((float)dt);
+    ShelfAction act;
+    while (m_shelf.poll_action(act)) {
+        if (act.kind == ShelfAction::SETTINGS) {
+            open_config(act.group);
+            sfx_play_confirm();
+        } else if (act.kind == ShelfAction::LAUNCH) {
+            m_pending = make_request(act.group, act.entry);
+            remember(act.group, act.entry);
+            m_shelf.on_launched();
+        }
+    }
+
+    m_shelf.draw_scene();
+    ui_set_draw_bg(false);
+    ui_begin();
+    m_shelf.draw_overlay(m_style, m_app_name, m_config_open);
+    if (m_config_open) {
+        draw_config_modal();
+        draw_config_hints();
+    }
+    m_shelf.draw_fade();
+    ui_end();
+    ui_set_draw_bg(true);
+}
 
 /* Filled triangle centered at (cx,cy), height h pixels.
    point_up=true → ▲  point_up=false → ▼ */
@@ -255,17 +420,30 @@ static void draw_tri(float cx, float cy, float h, bool point_up,
     }
 }
 
-/* ── Drawing ────────────────────────────────────────────────────────── */
-void Launcher::draw(void) {
-    if (m_groups.empty()) {
-        ui_begin();
-        ui_rect(0,0,WIN_W,WIN_H, PANEL_R,PANEL_G,PANEL_B,0.88f);
-        ui_text(PAD, WIN_H/2-16, 2.0f, "No ROMs found. Place roms + db.json and restart.",
-                1.0f,1.0f,1.0f);
-        ui_end();
-        return;
-    }
+static const char *ingame_hint(PadStyle style) {
+#ifdef __SWITCH__
+    (void)style;
+    return "In-game: L3 = launcher";
+#else
+    return style == STYLE_KEYBOARD ? "In-game: Esc = launcher" : "In-game: L3 = launcher";
+#endif
+}
 
+void Launcher::draw_config_hints(void) {
+    Hint h[4];
+    int n = 0;
+    if (m_clear_confirm) {
+        h[n++] = {HB_CONFIRM, "Delete saves"};
+        h[n++] = {HB_BACK, "Cancel"};
+    } else {
+        h[n++] = {HB_DPAD_V, "Navigate"};
+        h[n++] = {HB_CONFIRM, m_config_sel == ROW_VIEW ? "Switch view" : "Apply"};
+        h[n++] = {HB_BACK, "Close"};
+    }
+    uikit_hint_bar(h, n, m_style, nullptr);
+}
+
+void Launcher::draw_classic(void) {
     ui_begin();
 
     /* Left panel — semi-transparent dark overlay over the fabric */
@@ -282,32 +460,37 @@ void Launcher::draw(void) {
     else
         draw_carousel();
 
-    if (m_config_open)
+    if (m_config_open) {
         draw_config_modal();
-
-    /* Bottom hint bar */
-    ui_rect(0,WIN_H-28,WIN_W,28, PANEL_R,PANEL_G,PANEL_B,0.90f);
-    ui_rect(0,WIN_H-29,WIN_W,1, GOLD_R,GOLD_G,GOLD_B,0.60f);
-    const char *nav_hint;
-    const char *game_hint = "In-game: Esc = launcher";
-#ifdef __SWITCH__
-    game_hint = "In-game: L3 = launcher";
-    if (m_config_open)
-        nav_hint = "D-pad: navigate   A: select   B: close";
-    else if (m_submenu < 0)
-        nav_hint = "D-pad: navigate   A: select   Y: settings";
-    else
-        nav_hint = "D-pad: navigate   A: launch   B: back   Y: settings";
-#else
-    if (m_config_open)
-        nav_hint = "Up/Down: navigate   Enter: apply   Esc: close";
-    else if (m_submenu < 0)
-        nav_hint = "Up/Down: navigate   Enter: select   Tab: settings   F11: maximize";
-    else
-        nav_hint = "Up/Down: navigate   Enter: launch   Esc: back   Tab: settings   F11: maximize";
+        draw_config_hints();
+    } else {
+        Hint h[5];
+        int n = 0;
+        char confirm_lbl[40];
+        if (m_submenu < 0) {
+            const GameGroup &g = m_groups[(size_t)m_selected];
+            if (g.sequential) {
+                int w = std::min(db_progress_get(g.key), (int)g.entries.size() - 1);
+                snprintf(confirm_lbl, sizeof(confirm_lbl), "Play %s", g.entries[(size_t)w].title.c_str());
+            } else if (g.entries.size() > 1) {
+                snprintf(confirm_lbl, sizeof(confirm_lbl), "Versions (%d)", (int)g.entries.size());
+            } else {
+                snprintf(confirm_lbl, sizeof(confirm_lbl), "Play");
+            }
+            h[n++] = {HB_DPAD_V, "Navigate"};
+            h[n++] = {HB_CONFIRM, confirm_lbl};
+        } else {
+            const GameGroup &g = m_groups[(size_t)m_submenu];
+            h[n++] = {HB_DPAD_V, "Navigate"};
+            h[n++] = {HB_CONFIRM, db_entry_unlocked(g, m_sub_sel) ? "Play" : "Locked"};
+            h[n++] = {HB_BACK, "Back"};
+        }
+        h[n++] = {HB_SETTINGS, "Settings"};
+#ifndef __SWITCH__
+        if (m_style == STYLE_KEYBOARD) h[n++] = {HB_FULLSCREEN, "Maximize"};
 #endif
-    ui_text(PAD,        WIN_H-20, 1.0f, nav_hint,  0.65f,0.65f,0.65f);
-    ui_text(900,        WIN_H-20, 1.0f, game_hint, 0.65f,0.65f,0.65f);
+        uikit_hint_bar(h, n, m_style, ingame_hint(m_style));
+    }
 
     ui_end();
 }
@@ -369,7 +552,6 @@ void Launcher::draw_carousel(void) {
         pulse = sinf(t * 3.14159f);   /* smooth 0→peak→0 over 260ms */
     }
 
-    /* Arrows sit in the gap between card right-edge (~270) and separator (320) */
     /* Centered in the gap between card right edge (270) and separator (320) → x=295 */
     const float ax      = (LEFT_W / 2.0f + CARD_W / 2.0f + LEFT_W) * 0.5f;
     const float ay_up   = cy - 50.0f;   /* 100px total gap between the two arrows */
@@ -399,7 +581,6 @@ void Launcher::draw_carousel(void) {
     for (int offset = -2; offset <= 2; offset++) {
         int idx = (m_selected + offset + n * 10) % n;
         float scale = (offset == 0) ? 1.0f : (abs(offset) == 1 ? 0.78f : 0.60f);
-        float alpha = (offset == 0) ? 1.0f : (abs(offset) == 1 ? 0.55f : 0.30f);
         float w = CARD_W * scale, h = CARD_H * scale;
         float x = cx - w * 0.5f;
         float y = cy + (float)offset * spacing - h * 0.5f;
@@ -428,6 +609,19 @@ void Launcher::draw_carousel(void) {
             ui_rect(x,       y+h-bw,  w,  bw, GOLD_R, GOLD_G, GOLD_B, 1.0f);
             ui_rect(x,       y,       bw, h,  GOLD_R, GOLD_G, GOLD_B, 1.0f);
             ui_rect(x+w-bw,  y,       bw, h,  GOLD_R, GOLD_G, GOLD_B, 1.0f);
+        }
+
+        /* Version count badge: tells from the list whether there's a choice. */
+        if (!g.sequential && g.entries.size() > 1) {
+            float r  = 12.0f * scale;
+            float bx = x + w - r - 4.0f * scale, by = y + r + 4.0f * scale;
+            float ba = (offset == 0) ? 1.0f : 0.75f * bright + 0.2f;
+            ui_circle(bx, by, r, GOLD_R * ba, GOLD_G * ba, GOLD_B * ba, 1.0f);
+            char num[8];
+            snprintf(num, sizeof(num), "%d", (int)g.entries.size());
+            int px = (int)(16.0f * scale + 0.5f);
+            ui_text_px(bx - (float)ui_text_width(px, num) * 0.5f,
+                       by - (float)ui_text_line_height(px) * 0.5f, px, num, 0.14f, 0.09f, 0.02f, 1.0f);
         }
 
         if (g.sequential && offset == 0) {
@@ -524,6 +718,17 @@ void Launcher::draw_detail(const GameGroup &g, int entry_hint) {
             ui_text(x, y, 1.5f, plat.c_str(), 0.80f,0.80f,0.78f);
             y += 24;
         }
+    }
+
+    /* In the list, name the versions a game contains before it's opened. */
+    if (entry_hint < 0 && !g.sequential && g.entries.size() > 1) {
+        std::string line = std::to_string(g.entries.size()) + " versions: ";
+        for (size_t i = 0; i < g.entries.size(); i++) {
+            if (i) line += ", ";
+            line += g.entries[i].title;
+        }
+        y = ui_text_wrap(x, y, w, 18, 22.0f, line.c_str(), UI_ALIGN_LEFT, 2,
+                         GOLD_R, GOLD_G, GOLD_B, 1.0f) + 2.0f;
     }
 
     /* Gold separator line */
@@ -634,50 +839,52 @@ void Launcher::draw_config_modal(void) {
     int active_shader = prefs_get_shader(g.key);
 
     /* Modal dimensions */
-    const float MW   = 460.0f;
-    const float MX   = LEFT_W + (WIN_W - LEFT_W - MW) * 0.5f;
-    const float ROW  = 28.0f;
-    const float MH   = 50.0f + 20.0f + 20.0f + NUM_SHADERS * ROW + 14.0f + ROW + 40.0f;
-    const float MY   = (WIN_H - 28.0f - MH) * 0.5f;
+    const float MW   = 480.0f;
+    const float ROW  = 30.0f;
+    const float MH   = 16.0f + 38.0f + 26.0f + 12.0f + 24.0f + NUM_SHADERS * ROW
+                     + 12.0f + ROW + 14.0f + 24.0f + ROW + 18.0f;
+    const float MX   = in_3d() ? (WIN_W - MW) * 0.5f : LEFT_W + (WIN_W - LEFT_W - MW) * 0.5f;
+    const float MY   = (WIN_H - HINT_BAR_H - MH) * 0.5f;
 
     /* Dim everything behind the modal */
-    ui_rect(0.0f, 0.0f, WIN_W, WIN_H - 28.0f, 0.0f, 0.0f, 0.0f, 0.55f);
+    ui_rect(0.0f, 0.0f, WIN_W, WIN_H - HINT_BAR_H, 0.0f, 0.0f, 0.0f, 0.55f);
 
-    /* Modal card */
-    ui_rect(MX, MY, MW, MH, 0.04f, 0.09f, 0.06f, 0.97f);
-    /* Gold border */
-    ui_rect(MX,          MY,          MW,   2.0f, GOLD_R,GOLD_G,GOLD_B,0.90f);
-    ui_rect(MX,          MY+MH-2.0f,  MW,   2.0f, GOLD_R,GOLD_G,GOLD_B,0.90f);
-    ui_rect(MX,          MY,          2.0f, MH,   GOLD_R,GOLD_G,GOLD_B,0.90f);
-    ui_rect(MX+MW-2.0f,  MY,          2.0f, MH,   GOLD_R,GOLD_G,GOLD_B,0.90f);
+    /* Modal card with a gold border */
+    ui_round_rect(MX, MY, MW, MH, 10.0f, 0.04f, 0.09f, 0.06f, 0.97f);
+    ui_round_rect_outline(MX, MY, MW, MH, 10.0f, 2.0f, GOLD_R, GOLD_G, GOLD_B, 0.90f);
 
-    float tx = MX + 18.0f;
-    float ty = MY + 14.0f;
+    float tx = MX + 20.0f;
+    float ty = MY + 16.0f;
 
     /* Title */
-    ui_text(tx, ty, 1.8f, "SETTINGS", GOLD_R, GOLD_G, GOLD_B);
-    ty += 26.0f;
+    ui_text_px(tx, ty, 32, "SETTINGS", GOLD_R, GOLD_G, GOLD_B, 1.0f);
+    ty += 38.0f;
     {
         char title[48];
-        snprintf(title, sizeof(title), "%.36s", g.title.c_str());
-        ui_text(tx, ty, 1.3f, title, 0.80f, 0.80f, 0.75f);
+        snprintf(title, sizeof(title), "%.40s", g.title.c_str());
+        ui_text_px(tx, ty, 18, title, 0.80f, 0.80f, 0.75f, 1.0f);
     }
-    ty += 20.0f;
+    ty += 26.0f;
 
     /* Separator */
-    ui_rect(tx, ty, MW - 36.0f, 1.0f, GOLD_R, GOLD_G, GOLD_B, 0.40f);
+    ui_rect(tx, ty, MW - 40.0f, 1.0f, GOLD_R, GOLD_G, GOLD_B, 0.40f);
     ty += 12.0f;
 
-    /* Shader section label */
-    ui_text(tx, ty, 1.2f, "DISPLAY SHADER", GOLD_DIM_R, GOLD_DIM_G, GOLD_DIM_B);
-    ty += 20.0f;
-
     if (!m_clear_confirm) {
+        /* Shader section label */
+        ui_text_px(tx, ty, 15, "DISPLAY SHADER  (this game)", GOLD_DIM_R, GOLD_DIM_G, GOLD_DIM_B, 1.0f);
+        ty += 24.0f;
+
+        auto row_bg = [&](float y, bool hov, bool danger) {
+            if (!hov) return;
+            if (danger) ui_round_rect(MX + 6.0f, y - 3.0f, MW - 12.0f, ROW, 6.0f, 0.25f, 0.04f, 0.04f, 0.85f);
+            else        ui_round_rect(MX + 6.0f, y - 3.0f, MW - 12.0f, ROW, 6.0f,
+                                      GOLD_R * 0.12f, GOLD_G * 0.10f, 0.02f, 0.95f);
+        };
+
         for (int i = 0; i < NUM_SHADERS; i++) {
             bool hov = (m_config_sel == i);
-            if (hov)
-                ui_rect(MX + 4.0f, ty - 3.0f, MW - 8.0f, ROW,
-                        GOLD_R*0.10f, GOLD_G*0.08f, 0.02f, 0.90f);
+            row_bg(ty, hov, false);
 
             /* Active shader bullet */
             float br, bg, bb;
@@ -688,32 +895,48 @@ void Launcher::draw_config_modal(void) {
             char row_buf[64];
             snprintf(row_buf, sizeof(row_buf), "%s %s",
                      (i == active_shader) ? "[x]" : "[ ]", SHADER_NAMES[i]);
-            ui_text(tx + 4.0f, ty + 4.0f, 1.4f, row_buf, br, bg, bb);
+            ui_text_px(tx + 4.0f, ty + 2.0f, 20, row_buf, br, bg, bb, 1.0f);
             ty += ROW;
         }
 
         /* Separator */
-        ui_rect(tx, ty, MW - 36.0f, 1.0f, GOLD_R, GOLD_G, GOLD_B, 0.30f);
-        ty += 14.0f;
+        ty += 4.0f;
+        ui_rect(tx, ty, MW - 40.0f, 1.0f, GOLD_R, GOLD_G, GOLD_B, 0.30f);
+        ty += 8.0f;
 
         /* Clear data row */
-        bool hov_clear = (m_config_sel == NUM_SHADERS);
-        if (hov_clear)
-            ui_rect(MX + 4.0f, ty - 3.0f, MW - 8.0f, ROW,
-                    0.25f, 0.04f, 0.04f, 0.85f);
+        bool hov_clear = (m_config_sel == ROW_CLEAR);
+        row_bg(ty, hov_clear, true);
         float cr = hov_clear ? 1.0f : 0.70f;
-        ui_text(tx + 4.0f, ty + 4.0f, 1.4f, "Clear Save Data", cr, 0.28f, 0.28f);
+        ui_text_px(tx + 4.0f, ty + 2.0f, 20, "Clear Save Data", cr, 0.28f, 0.28f, 1.0f);
+        ty += ROW;
+
+        /* Launcher view (global) */
+        ty += 4.0f;
+        ui_rect(tx, ty, MW - 40.0f, 1.0f, GOLD_R, GOLD_G, GOLD_B, 0.30f);
+        ty += 10.0f;
+        ui_text_px(tx, ty, 15, "LAUNCHER VIEW  (all games)", GOLD_DIM_R, GOLD_DIM_G, GOLD_DIM_B, 1.0f);
+        ty += 24.0f;
+        bool hov_view = (m_config_sel == ROW_VIEW);
+        row_bg(ty, hov_view, false);
+        const bool is3d = in_3d();
+        float vr = hov_view ? GOLD_R : 0.85f, vg = hov_view ? GOLD_G : 0.85f, vb = hov_view ? GOLD_B : 0.80f;
+        ui_text_px(tx + 4.0f, ty + 2.0f, 20, "View:", vr, vg, vb, 1.0f);
+        float cx = tx + 90.0f;
+        cx += uikit_chip(cx, ty - 1.0f, "3D Shelf", 14, is3d, is3d ? 1.0f : 0.6f) + 8.0f;
+        uikit_chip(cx, ty - 1.0f, "Classic list", 14, !is3d, !is3d ? 1.0f : 0.6f);
     } else {
         /* Confirmation sub-step */
-        ty += NUM_SHADERS * ROW + 28.0f;
-        ui_text(tx, ty, 1.4f, "Delete ALL saves for this game?", 1.0f, 0.4f, 0.3f);
-        ty += 22.0f;
-        ui_text(tx, ty, 1.3f, "This cannot be undone.", 0.80f, 0.55f, 0.50f);
-        ty += 28.0f;
-#ifdef __SWITCH__
-        ui_text(tx, ty, 1.3f, "A: Confirm   B: Cancel", GOLD_R, GOLD_G, GOLD_B);
-#else
-        ui_text(tx, ty, 1.3f, "Enter: Confirm   Esc: Cancel", GOLD_R, GOLD_G, GOLD_B);
-#endif
+        ty += 60.0f;
+        ui_text_px(tx, ty, 22, "Delete ALL saves for this game?", 1.0f, 0.4f, 0.3f, 1.0f);
+        ty += 32.0f;
+        ui_text_px(tx, ty, 18, "This cannot be undone.", 0.80f, 0.55f, 0.50f, 1.0f);
+        ty += 40.0f;
+        float gx = tx;
+        gx += uikit_glyph(gx, ty + 10.0f, HB_CONFIRM, m_style, 1.0f) + 8.0f;
+        ui_text_px(gx, ty, 18, "Confirm", GOLD_R, GOLD_G, GOLD_B, 1.0f);
+        gx += (float)ui_text_width(18, "Confirm") + 24.0f;
+        gx += uikit_glyph(gx, ty + 10.0f, HB_BACK, m_style, 1.0f) + 8.0f;
+        ui_text_px(gx, ty, 18, "Cancel", GOLD_R, GOLD_G, GOLD_B, 1.0f);
     }
 }

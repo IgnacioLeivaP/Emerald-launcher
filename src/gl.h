@@ -9,7 +9,14 @@ extern "C" {
    All entry points are core in GLES 3.0, so gl_* maps directly with no
    runtime loading. Shaders use the GLSL_VERSION macro as their first line.
    =================================================================== */
-#ifdef NINTENDO_SWITCH
+/* EL_GLES: a desktop build that uses OpenGL ES 3.0 exactly like the Switch
+   does (Mesa on Linux provides it). Lets the Switch renderer path — shaders
+   included — be exercised on a PC. Enable with -DEL_GLES=ON in CMake. */
+#if defined(NINTENDO_SWITCH) || defined(EL_GLES)
+#  define EL_GLES_API 1
+#endif
+
+#ifdef EL_GLES_API
 
 #include <GLES3/gl3.h>
 #include <stddef.h>
@@ -62,6 +69,12 @@ extern "C" {
 #define gl_DeleteRenderbuffers      glDeleteRenderbuffers
 #define gl_CheckFramebufferStatus   glCheckFramebufferStatus
 #define gl_BlitFramebuffer          glBlitFramebuffer
+#define gl_UniformMatrix4fv         glUniformMatrix4fv
+#define gl_Uniform3f                glUniform3f
+#define gl_Uniform4f                glUniform4f
+#define gl_GenerateMipmap           glGenerateMipmap
+#define gl_RenderbufferStorageMultisample glRenderbufferStorageMultisample
+#define gl_BlendFuncSeparate        glBlendFuncSeparate
 
 static inline int gl_load(void) { return 1; }   /* nothing to load on GLES */
 
@@ -91,8 +104,12 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_LINK_STATUS            0x8B82
 #define GL_INFO_LOG_LENGTH        0x8B84
 #define GL_ARRAY_BUFFER           0x8892
-#define GL_STATIC_DRAW            0x88B4
-#define GL_DYNAMIC_DRAW           0x88B8
+#ifndef GL_STATIC_DRAW
+#  define GL_STATIC_DRAW          0x88E4
+#endif
+#ifndef GL_DYNAMIC_DRAW
+#  define GL_DYNAMIC_DRAW         0x88E8
+#endif
 #define GL_TEXTURE0               0x84C0
 #define GL_TEXTURE1               0x84C1
 #define GL_BGRA                   0x80E1
@@ -110,6 +127,9 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_FRAMEBUFFER_COMPLETE   0x8CD5
 #define GL_READ_FRAMEBUFFER       0x8CA8
 #define GL_DRAW_FRAMEBUFFER       0x8CA9
+#ifndef GL_MAX_SAMPLES
+#  define GL_MAX_SAMPLES          0x8D57
+#endif
 
 /* ── Function pointer types ──────────────────────────────────────── */
 typedef GLuint (*PFN_CreateShader)(GLenum);
@@ -154,6 +174,12 @@ typedef void   (*PFN_FramebufferRenderbuffer)(GLenum, GLenum, GLenum, GLuint);
 typedef void   (*PFN_DeleteRenderbuffers)(GLsizei, const GLuint *);
 typedef GLenum (*PFN_CheckFramebufferStatus)(GLenum);
 typedef void   (*PFN_BlitFramebuffer)(GLint,GLint,GLint,GLint,GLint,GLint,GLint,GLint,GLbitfield,GLenum);
+typedef void   (*PFN_UniformMatrix4fv)(GLint, GLsizei, GLboolean, const GLfloat *);
+typedef void   (*PFN_Uniform3f)(GLint, GLfloat, GLfloat, GLfloat);
+typedef void   (*PFN_Uniform4f)(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
+typedef void   (*PFN_GenerateMipmap)(GLenum);
+typedef void   (*PFN_RenderbufferStorageMultisample)(GLenum, GLsizei, GLenum, GLsizei, GLsizei);
+typedef void   (*PFN_BlendFuncSeparate)(GLenum, GLenum, GLenum, GLenum);
 
 /* ── Global function pointers ────────────────────────────────────── */
 extern PFN_CreateShader           gl_CreateShader;
@@ -198,11 +224,17 @@ extern PFN_FramebufferRenderbuffer gl_FramebufferRenderbuffer;
 extern PFN_DeleteRenderbuffers    gl_DeleteRenderbuffers;
 extern PFN_CheckFramebufferStatus gl_CheckFramebufferStatus;
 extern PFN_BlitFramebuffer        gl_BlitFramebuffer;
+extern PFN_UniformMatrix4fv       gl_UniformMatrix4fv;
+extern PFN_Uniform3f              gl_Uniform3f;
+extern PFN_Uniform4f              gl_Uniform4f;
+extern PFN_GenerateMipmap         gl_GenerateMipmap;
+extern PFN_RenderbufferStorageMultisample gl_RenderbufferStorageMultisample;
+extern PFN_BlendFuncSeparate      gl_BlendFuncSeparate;
 
 /* Load all function pointers via SDL_GL_GetProcAddress. Returns 0 on failure. */
 int gl_load(void);
 
-#endif /* NINTENDO_SWITCH */
+#endif /* EL_GLES_API */
 
 /* Wrapper around SDL_GL_GetProcAddress (so non-SDL TUs like core.c can provide
    a get_proc_address to hardware-rendering libretro cores). Both platforms. */

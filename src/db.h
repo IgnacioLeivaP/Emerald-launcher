@@ -8,6 +8,7 @@ struct GameEntry {
     std::string platform;
     std::string              version_desc;
     std::string              logo_path;
+    std::string              cover_path;   /* optional box-art front (3D shelf) */
     std::vector<std::string> screenshots;
     std::string rom_path;
     std::string core_dll;
@@ -33,6 +34,7 @@ struct GameGroup {
     bool                     sequential = false;
     std::vector<GameEntry>   entries;
     std::string              logo_path;
+    std::string              cover_path;   /* optional box-art front shared by its versions */
 };
 
 /* Load db.json + scan roms/ directory. Returns populated groups (only those
@@ -44,6 +46,6 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
 int  db_progress_get(const std::string &group_key);
 void db_progress_set(const std::string &group_key, int entry_idx);
 
-/* Check if entry_idx in a sequential group is unlocked.
-   For non-sequential groups all entries are always unlocked. */
+/* Check if entry_idx in a sequential group is unlocked (the previous week was
+   completed). For non-sequential groups all entries are always unlocked. */
 bool db_entry_unlocked(const GameGroup &g, int entry_idx);
