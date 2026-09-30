@@ -106,6 +106,19 @@ const char *const ES[][2] = {
     {"R3: next week", "R3: siguiente semana"},
     {"Tab: next week", "Tab: siguiente semana"},
 
+    {"Performance info: %s", "Info. de rendimiento: %s"},
+    {"Performance info", "Info. de rendimiento"},
+    {"On", "Sí"},
+    {"Off", "No"},
+    {"Auto", "Automático"},
+    {"View", "Vista"},
+    {"SETTINGS", "AJUSTES"},
+    {"DISPLAY SHADER  (this game)", "FILTRO DE IMAGEN  (este juego)"},
+    {"ALL GAMES", "TODOS LOS JUEGOS"},
+    {"Delete ALL saves for this game?", "¿Borrar TODAS las partidas de este juego?"},
+    {"This cannot be undone.", "No se puede deshacer."},
+    {"Confirm", "Confirmar"},
+
     /* Toasts */
     {"State saved", "Estado guardado"},
     {"State loaded", "Estado cargado"},

@@ -129,5 +129,6 @@ private:
     void draw_config_hints(void);
     void confirm_selection(void);
     void open_config(int group);
+    void change_option(int row, int d);
     void close_config(void);
 };

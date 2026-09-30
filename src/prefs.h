@@ -21,3 +21,7 @@ void        prefs_set_last_entry(const std::string &group_key, int entry_idx);
 /* UI language: "auto" (system), "en" or "es". */
 std::string prefs_get_language(void);
 void        prefs_set_language(const std::string &code);
+
+/* Performance overlay (fps, timings, memory). */
+bool prefs_get_perf_hud(void);
+void prefs_set_perf_hud(bool on);

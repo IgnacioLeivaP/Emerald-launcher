@@ -12,7 +12,7 @@
 
 namespace {
 
-enum Row { R_RESUME, R_SAVE, R_LOAD, R_SHOT, R_SHADER, R_CONTROLS, R_NEXT_WEEK, R_RESET, R_QUIT };
+enum Row { R_RESUME, R_SAVE, R_LOAD, R_SHOT, R_SHADER, R_CONTROLS, R_PERF, R_NEXT_WEEK, R_RESET, R_QUIT };
 
 PauseInfo        s_info;
 bool             s_open = false;
@@ -39,6 +39,7 @@ void build_rows(void) {
     s_rows.push_back(R_SHOT);
     s_rows.push_back(R_SHADER);
     if (s_info.controls)  s_rows.push_back(R_CONTROLS);
+    s_rows.push_back(R_PERF);
     if (s_info.next_week) s_rows.push_back(R_NEXT_WEEK);
     if (s_info.can_reset) s_rows.push_back(R_RESET);
     s_rows.push_back(R_QUIT);
@@ -60,6 +61,9 @@ std::string row_label(Row r) {
         snprintf(buf, sizeof(buf), tr("Shader: %s"), tr(renderer_shader_name(s_shader)));
         return buf;
     case R_CONTROLS:  return tr("Controls");
+    case R_PERF:
+        snprintf(buf, sizeof(buf), tr("Performance info: %s"), s_info.perf ? tr("On") : tr("Off"));
+        return buf;
     case R_NEXT_WEEK: return tr("Next week");
     case R_RESET:     return tr("Reset game");
     case R_QUIT:      return tr("Return to launcher");
@@ -231,6 +235,7 @@ PauseAction pause_input(UiInput in) {
             sfx_play_nav();
             return PAUSE_SHADER;
         case R_CONTROLS: sfx_play_confirm(); return PAUSE_CONTROLS;
+        case R_PERF:     sfx_play_nav(); return PAUSE_PERF;
         case R_NEXT_WEEK: {
             char buf[160];
             snprintf(buf, sizeof(buf), tr("Go to week %d? Your save carries over."), s_info.week + 1);

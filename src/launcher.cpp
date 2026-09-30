@@ -1,5 +1,7 @@
 #include "launcher.h"
 #include "boxart.h"
+#include "perf.h"
+#include "renderer.h"
 #include "fsutil.h"
 #include "i18n.h"
 #include "savestate.h"
@@ -24,19 +26,16 @@ static bool delete_file(const char *path) { return DeleteFileA(path) != 0; }
 static bool delete_file(const char *path) { return remove(path) == 0; }
 #endif
 
-static const char *SHADER_NAMES[] = {
-    "None (sharp pixels)",
-    "Smooth (ScaleFX-9x)",
-    "Scanlines",
-    "CRT (scanlines + vignette)",
-    "LCD Grid (handheld)",
-    "Bloom (glow on brights)"
+static const int NUM_SHADERS = RENDERER_SHADER_COUNT;
+/* Settings rows: this game's shader and saves, then options for all games. */
+enum {
+    ROW_CLEAR = NUM_SHADERS,
+    ROW_VIEW,
+    ROW_LANG,
+    ROW_PERF,
+    CONFIG_ROWS
 };
-static const int NUM_SHADERS = 6;
-/* Settings rows: the shaders, then "Clear Save Data", then the launcher view. */
-static const int ROW_CLEAR   = NUM_SHADERS;
-static const int ROW_VIEW    = NUM_SHADERS + 1;
-static const int CONFIG_ROWS = NUM_SHADERS + 2;
+static const char *LANG_PREFS[] = { "auto", "en", "es" };
 
 /* Layout constants (1280x720) */
 static const float WIN_W  = UI_W;
@@ -306,7 +305,7 @@ void Launcher::config_input(UiInput in) {
     case IN_UP:   m_config_sel = (m_config_sel - 1 + CONFIG_ROWS) % CONFIG_ROWS; sfx_play_nav(); break;
     case IN_DOWN: m_config_sel = (m_config_sel + 1) % CONFIG_ROWS;               sfx_play_nav(); break;
     case IN_LEFT: case IN_RIGHT:
-        if (m_config_sel == ROW_VIEW) { set_view_3d(!in_3d()); sfx_play_confirm(); }
+        if (m_config_sel >= ROW_VIEW) { change_option(m_config_sel, in == IN_LEFT ? -1 : 1); sfx_play_nav(); }
         break;
     case IN_CONFIRM:
         if (m_config_sel < NUM_SHADERS) {
@@ -315,7 +314,7 @@ void Launcher::config_input(UiInput in) {
         } else if (m_config_sel == ROW_CLEAR) {
             m_clear_confirm = true;
         } else {
-            set_view_3d(!in_3d());
+            change_option(m_config_sel, +1);
         }
         sfx_play_confirm();
         break;
@@ -324,6 +323,25 @@ void Launcher::config_input(UiInput in) {
         sfx_play_back();
         break;
     default: break;
+    }
+}
+
+/* Options for all games: view, language, performance overlay. */
+void Launcher::change_option(int row, int d) {
+    if (row == ROW_VIEW) {
+        set_view_3d(!in_3d());
+    } else if (row == ROW_LANG) {
+        int cur = 0;
+        for (int i = 0; i < 3; i++) if (prefs_get_language() == LANG_PREFS[i]) cur = i;
+        cur = (cur + d + 3) % 3;
+        prefs_set_language(LANG_PREFS[cur]);
+        i18n_init(LANG_PREFS[cur]);
+        boxart_release();                      /* the boxes print text too */
+        prefs_save();
+    } else if (row == ROW_PERF) {
+        perf_set_enabled(!perf_enabled());
+        prefs_set_perf_hud(perf_enabled());
+        prefs_save();
     }
 }
 
@@ -501,7 +519,10 @@ void Launcher::draw(void) {
         }
     }
 
+    perf_section_begin(PERF_RENDER);
     m_shelf.draw_scene();
+    perf_section_end(PERF_RENDER);
+    perf_section_begin(PERF_UI);
     ui_set_draw_bg(false);
     ui_begin();
     m_shelf.draw_overlay(m_style, m_app_name, modal_open());
@@ -512,6 +533,8 @@ void Launcher::draw(void) {
     if (m_resume_open) draw_resume_prompt();
     m_shelf.draw_fade();
     toast_draw();
+    perf_section_end(PERF_UI);
+    perf_draw(false);
     ui_end();
     ui_set_draw_bg(true);
 }
@@ -541,12 +564,13 @@ void Launcher::draw_config_hints(void) {
     Hint h[4];
     int n = 0;
     if (m_clear_confirm) {
-        h[n++] = {HB_CONFIRM, "Delete saves"};
-        h[n++] = {HB_BACK, "Cancel"};
+        h[n++] = {HB_CONFIRM, tr("Delete saves")};
+        h[n++] = {HB_BACK, tr("Cancel")};
     } else {
-        h[n++] = {HB_DPAD_V, "Navigate"};
-        h[n++] = {HB_CONFIRM, m_config_sel == ROW_VIEW ? "Switch view" : "Apply"};
-        h[n++] = {HB_BACK, "Close"};
+        h[n++] = {HB_DPAD_V, tr("Navigate")};
+        if (m_config_sel >= ROW_VIEW) h[n++] = {HB_DPAD_H, tr("Change")};
+        else                          h[n++] = {HB_CONFIRM, m_config_sel == ROW_CLEAR ? tr("Delete saves") : tr("Apply")};
+        h[n++] = {HB_BACK, tr("Close")};
     }
     uikit_hint_bar(h, n, m_style, nullptr);
 }
@@ -602,6 +626,7 @@ void Launcher::draw_classic(void) {
         uikit_hint_bar(h, n, m_style, ingame_hint(m_style));
     }
     toast_draw();
+    perf_draw(false);
 
     ui_end();
 }
@@ -1023,10 +1048,11 @@ void Launcher::draw_config_modal(void) {
     int active_shader = prefs_get_shader(g.key);
 
     /* Modal dimensions */
-    const float MW   = 480.0f;
+    const float MW   = 540.0f;
     const float ROW  = 30.0f;
+    const int   NOPT = CONFIG_ROWS - ROW_VIEW;
     const float MH   = 16.0f + 38.0f + 26.0f + 12.0f + 24.0f + NUM_SHADERS * ROW
-                     + 12.0f + ROW + 14.0f + 24.0f + ROW + 18.0f;
+                     + 12.0f + ROW + 14.0f + 24.0f + (float)NOPT * ROW + 18.0f;
     const float MX   = in_3d() ? (WIN_W - MW) * 0.5f : LEFT_W + (WIN_W - LEFT_W - MW) * 0.5f;
     const float MY   = (WIN_H - HINT_BAR_H - MH) * 0.5f;
 
@@ -1041,7 +1067,7 @@ void Launcher::draw_config_modal(void) {
     float ty = MY + 16.0f;
 
     /* Title */
-    ui_text_px(tx, ty, 32, "SETTINGS", GOLD_R, GOLD_G, GOLD_B, 1.0f);
+    ui_text_px(tx, ty, 32, tr("SETTINGS"), GOLD_R, GOLD_G, GOLD_B, 1.0f);
     ty += 38.0f;
     {
         char title[48];
@@ -1056,7 +1082,7 @@ void Launcher::draw_config_modal(void) {
 
     if (!m_clear_confirm) {
         /* Shader section label */
-        ui_text_px(tx, ty, 15, "DISPLAY SHADER  (this game)", GOLD_DIM_R, GOLD_DIM_G, GOLD_DIM_B, 1.0f);
+        ui_text_px(tx, ty, 15, tr("DISPLAY SHADER  (this game)"), GOLD_DIM_R, GOLD_DIM_G, GOLD_DIM_B, 1.0f);
         ty += 24.0f;
 
         auto row_bg = [&](float y, bool hov, bool danger) {
@@ -1076,9 +1102,9 @@ void Launcher::draw_config_modal(void) {
             else if (i==active_shader) { br=0.85f; bg=0.85f; bb=0.80f; }
             else           { br=0.55f;   bg=0.55f;   bb=0.50f; }
 
-            char row_buf[64];
+            char row_buf[96];
             snprintf(row_buf, sizeof(row_buf), "%s %s",
-                     (i == active_shader) ? "[x]" : "[ ]", SHADER_NAMES[i]);
+                     (i == active_shader) ? "[x]" : "[ ]", tr(renderer_shader_name(i)));
             ui_text_px(tx + 4.0f, ty + 2.0f, 20, row_buf, br, bg, bb, 1.0f);
             ty += ROW;
         }
@@ -1092,35 +1118,53 @@ void Launcher::draw_config_modal(void) {
         bool hov_clear = (m_config_sel == ROW_CLEAR);
         row_bg(ty, hov_clear, true);
         float cr = hov_clear ? 1.0f : 0.70f;
-        ui_text_px(tx + 4.0f, ty + 2.0f, 20, "Clear Save Data", cr, 0.28f, 0.28f, 1.0f);
+        ui_text_px(tx + 4.0f, ty + 2.0f, 20, tr("Clear Save Data"), cr, 0.28f, 0.28f, 1.0f);
         ty += ROW;
 
-        /* Launcher view (global) */
+        /* Options for all games */
         ty += 4.0f;
         ui_rect(tx, ty, MW - 40.0f, 1.0f, GOLD_R, GOLD_G, GOLD_B, 0.30f);
         ty += 10.0f;
-        ui_text_px(tx, ty, 15, "LAUNCHER VIEW  (all games)", GOLD_DIM_R, GOLD_DIM_G, GOLD_DIM_B, 1.0f);
+        ui_text_px(tx, ty, 15, tr("ALL GAMES"), GOLD_DIM_R, GOLD_DIM_G, GOLD_DIM_B, 1.0f);
         ty += 24.0f;
-        bool hov_view = (m_config_sel == ROW_VIEW);
-        row_bg(ty, hov_view, false);
-        const bool is3d = in_3d();
-        float vr = hov_view ? GOLD_R : 0.85f, vg = hov_view ? GOLD_G : 0.85f, vb = hov_view ? GOLD_B : 0.80f;
-        ui_text_px(tx + 4.0f, ty + 2.0f, 20, "View:", vr, vg, vb, 1.0f);
-        float cx = tx + 90.0f;
-        cx += uikit_chip(cx, ty - 1.0f, "3D Shelf", 14, is3d, is3d ? 1.0f : 0.6f) + 8.0f;
-        uikit_chip(cx, ty - 1.0f, "Classic list", 14, !is3d, !is3d ? 1.0f : 0.6f);
+        for (int row = ROW_VIEW; row < CONFIG_ROWS; row++) {
+            const bool hov = m_config_sel == row;
+            row_bg(ty, hov, false);
+            const char *label = "";
+            const char *opts[3] = { nullptr, nullptr, nullptr };
+            int active = 0, nopts = 0;
+            if (row == ROW_VIEW) {
+                label = tr("View");
+                opts[0] = tr("3D Shelf"); opts[1] = tr("Classic list"); nopts = 2;
+                active = in_3d() ? 0 : 1;
+            } else if (row == ROW_LANG) {
+                label = tr("Language");
+                opts[0] = tr("Auto"); opts[1] = "English"; opts[2] = "Español"; nopts = 3;
+                for (int i = 0; i < 3; i++) if (prefs_get_language() == LANG_PREFS[i]) active = i;
+            } else if (row == ROW_PERF) {
+                label = tr("Performance info");
+                opts[0] = tr("Off"); opts[1] = tr("On"); nopts = 2;
+                active = perf_enabled() ? 1 : 0;
+            }
+            float vr = hov ? GOLD_R : 0.85f, vg = hov ? GOLD_G : 0.85f, vb = hov ? GOLD_B : 0.80f;
+            ui_text_px(tx + 4.0f, ty + 2.0f, 20, label, vr, vg, vb, 1.0f);
+            float cx = tx + 200.0f;
+            for (int i = 0; i < nopts; i++)
+                cx += uikit_chip(cx, ty - 1.0f, opts[i], 14, i == active, i == active ? 1.0f : 0.6f) + 8.0f;
+            ty += ROW;
+        }
     } else {
         /* Confirmation sub-step */
         ty += 60.0f;
-        ui_text_px(tx, ty, 22, "Delete ALL saves for this game?", 1.0f, 0.4f, 0.3f, 1.0f);
+        ui_text_px(tx, ty, 22, tr("Delete ALL saves for this game?"), 1.0f, 0.4f, 0.3f, 1.0f);
         ty += 32.0f;
-        ui_text_px(tx, ty, 18, "This cannot be undone.", 0.80f, 0.55f, 0.50f, 1.0f);
+        ui_text_px(tx, ty, 18, tr("This cannot be undone."), 0.80f, 0.55f, 0.50f, 1.0f);
         ty += 40.0f;
         float gx = tx;
         gx += uikit_glyph(gx, ty + 10.0f, HB_CONFIRM, m_style, 1.0f) + 8.0f;
-        ui_text_px(gx, ty, 18, "Confirm", GOLD_R, GOLD_G, GOLD_B, 1.0f);
-        gx += (float)ui_text_width(18, "Confirm") + 24.0f;
+        ui_text_px(gx, ty, 18, tr("Confirm"), GOLD_R, GOLD_G, GOLD_B, 1.0f);
+        gx += (float)ui_text_width(18, tr("Confirm")) + 24.0f;
         gx += uikit_glyph(gx, ty + 10.0f, HB_BACK, m_style, 1.0f) + 8.0f;
-        ui_text_px(gx, ty, 18, "Cancel", GOLD_R, GOLD_G, GOLD_B, 1.0f);
+        ui_text_px(gx, ty, 18, tr("Cancel"), GOLD_R, GOLD_G, GOLD_B, 1.0f);
     }
 }

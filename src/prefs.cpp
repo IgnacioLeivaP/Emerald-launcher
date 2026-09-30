@@ -16,6 +16,7 @@ static std::unordered_map<std::string, int> s_last_entry;
 static bool        s_view_3d = true;
 static std::string s_last_group;
 static std::string s_language = "auto";
+static bool        s_perf_hud = false;
 
 void prefs_load(void) {
     const bool migrate = !fs_exists(PREFS_PATH) && std::string(PREFS_PATH) != OLD_PREFS_PATH &&
@@ -34,6 +35,8 @@ void prefs_load(void) {
             s_last_group = j["last_group"].get<std::string>();
         if (j.contains("language") && j["language"].is_string())
             s_language = j["language"].get<std::string>();
+        if (j.contains("perf_hud") && j["perf_hud"].is_boolean())
+            s_perf_hud = j["perf_hud"].get<bool>();
         if (j.contains("last_entry") && j["last_entry"].is_object()) {
             for (auto &[k, v] : j["last_entry"].items())
                 if (v.is_number_integer()) s_last_entry[k] = v.get<int>();
@@ -54,6 +57,7 @@ void prefs_save(void) {
     j["view"] = s_view_3d ? "3d" : "classic";
     if (!s_last_group.empty()) j["last_group"] = s_last_group;
     j["language"] = s_language;
+    if (s_perf_hud) j["perf_hud"] = true;
     j["last_entry"] = nlohmann::json::object();
     for (auto &[k, v] : s_last_entry)
         j["last_entry"][k] = v;
@@ -87,3 +91,6 @@ void prefs_set_last_entry(const std::string &key, int idx) {
 
 std::string prefs_get_language(void)                  { return s_language; }
 void        prefs_set_language(const std::string &c) { s_language = c.empty() ? "auto" : c; }
+
+bool prefs_get_perf_hud(void)       { return s_perf_hud; }
+void prefs_set_perf_hud(bool on)    { s_perf_hud = on; }

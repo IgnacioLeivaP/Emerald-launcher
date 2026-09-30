@@ -8,6 +8,8 @@
 #include "core.h"
 #include "renderer.h"
 #include "ui.h"
+#include "audio.h"
+#include "perf.h"
 #include "pause.h"
 #include "savestate.h"
 #include "stats.h"
@@ -52,8 +54,6 @@ static Uint32   s_launcher_start = 0;
 static Branding      s_branding;
 static SDL_Window   *s_window   = nullptr;
 static SDL_GLContext s_glctx    = nullptr;
-static SDL_AudioDeviceID s_audio_dev = 0;
-static int s_audio_drop_bytes = 12000;  /* skip batches once the queue exceeds this */
 
 static Launcher s_launcher;
 static LaunchRequest s_current;   /* game being played */
@@ -113,13 +113,7 @@ static double  s_frame_target_us  = 16666.667; /* default: 60 fps */
 
 /* ── Audio ───────────────────────────────────────────────────────────── */
 static size_t audio_batch_cb(const int16_t *data, size_t frames) {
-    if (s_audio_dev) {
-        /* Drop audio if the queue is backing up — keeps latency low. The cap is
-           scaled to the core's sample rate (set on device open) so high-rate
-           cores aren't starved into crackling. */
-        if (SDL_GetQueuedAudioSize(s_audio_dev) < (Uint32)s_audio_drop_bytes)
-            SDL_QueueAudio(s_audio_dev, data, (Uint32)(frames * 4));
-    }
+    audio_push(data, frames);    /* resampled with dynamic rate control (audio.cpp) */
     return frames;
 }
 
@@ -319,30 +313,10 @@ static bool launch_game(const LaunchRequest &req) {
        initialise its GL resources via context_reset before the first frame. */
     if (core_hw_enabled()) core_hw_setup();
 
-    /* Open audio at the core's native sample rate */
+    /* Game audio at the device's rate, resampled from the core's. */
     CoreAVInfo av = core_get_avinfo();
-    {
-        int sr = (av.sample_rate > 0) ? (int)av.sample_rate : 44100;
-        if (s_audio_dev) { SDL_CloseAudioDevice(s_audio_dev); s_audio_dev = 0; }
-        sfx_suspend();   /* free the SFX device — some backends allow only one */
-        SDL_AudioSpec want{}, have{};
-        want.freq     = sr;
-        want.format   = AUDIO_S16SYS;
-        want.channels = 2;
-#ifdef __SWITCH__
-        want.samples  = 1024;   /* 512 underran on Switch → crackle */
-#else
-        want.samples  = 512;
-#endif
-        /* Allow ~125 ms of queued audio before dropping (scaled to the rate). */
-        s_audio_drop_bytes = (sr / 8) * 4;
-        if (s_audio_drop_bytes < 12000) s_audio_drop_bytes = 12000;
-        s_audio_dev = SDL_OpenAudioDevice(nullptr,0,&want,&have,0);
-        if (s_audio_dev) SDL_PauseAudioDevice(s_audio_dev,0);
-        else fprintf(stderr,"audio: FAILED to open game device: %s\n", SDL_GetError());
-        fprintf(stderr,"audio: opened %d Hz (core %.1f Hz) dev=%u have.freq=%d\n",
-                sr, av.sample_rate, (unsigned)s_audio_dev, have.freq);
-    }
+    sfx_suspend();   /* free the SFX device — some backends allow only one */
+    audio_open(av.sample_rate);
     double fps = (av.fps > 0.0) ? av.fps : 60.0;
     s_frame_target_us = 1000000.0 / fps;
     s_last_frame_tick = SDL_GetPerformanceCounter();
@@ -370,10 +344,7 @@ static void stop_game(bool keep_resume) {
     core_save_sram();
     core_unload();
     renderer_shutdown();
-    if (s_audio_dev) {
-        SDL_CloseAudioDevice(s_audio_dev);   /* release so the SFX device can reopen */
-        s_audio_dev = 0;
-    }
+    audio_close();   /* release so the SFX device can reopen */
     sfx_resume();
     s_state = STATE_LAUNCHER;
     /* Sequential progress is only advanced via advance_week() (R3 confirm),
@@ -472,6 +443,7 @@ static PauseInfo pause_info(void) {
         pi.state_thumb = state_thumb(sp);
     }
     pi.can_reset = core_can_reset();
+    pi.perf      = perf_enabled();
     pi.shader    = prefs_get_shader(s_current.group_key);
     pi.next_week = s_current.is_sequential && s_current.has_next_week && pause_week_done();
     pi.week      = s_current.entry_idx + 1;
@@ -529,6 +501,12 @@ static void pause_ui_input(UiInput in) {
         core_reset();
         toast_show(tr("Game reset"));
         break;
+    case PAUSE_PERF:
+        perf_set_enabled(!perf_enabled());
+        prefs_set_perf_hud(perf_enabled());
+        prefs_save();
+        pause_set_info(pause_info());
+        break;
     case PAUSE_NEXT_WEEK:
         if (s_current.is_sequential) advance_week();
         break;
@@ -553,6 +531,12 @@ static bool handle_event(const SDL_Event &ev) {
         if (k == SDLK_F11 ||
             (k == SDLK_RETURN && (ev.key.keysym.mod & KMOD_ALT))) {
             toggle_fullscreen();
+            return true;
+        }
+        if (k == SDLK_F3) {                        /* performance overlay */
+            perf_set_enabled(!perf_enabled());
+            prefs_set_perf_hud(perf_enabled());
+            prefs_save();
             return true;
         }
     }
@@ -730,7 +714,9 @@ static void tick_playing(void) {
 
     /* The game is frozen while the pause menu is open. */
     if (!pause_is_open()) {
+        perf_section_begin(PERF_CORE);
         core_run();
+        perf_section_end(PERF_CORE);
         if (!s_pending_resume.empty()) {        /* "Continue": after the first frame */
             if (!state_load(s_pending_resume)) toast_show(tr("Couldn't load the state"), true);
             s_pending_resume.clear();
@@ -754,12 +740,15 @@ static void tick_playing(void) {
     }
     if (s_state != STATE_PLAYING) return;     /* a menu action left the game */
 
+    perf_section_begin(PERF_RENDER);
     renderer_draw();
+    perf_section_end(PERF_RENDER);
 
     ui_begin();
     pause_draw_hud(s_pad_style);
     pause_draw(s_pad_style);
     toast_draw();
+    perf_draw(true);
     ui_end();
 }
 
@@ -860,6 +849,7 @@ int main(int argc, char *argv[]) {
     sfx_init();
     prefs_load();
     i18n_init(prefs_get_language());
+    perf_set_enabled(prefs_get_perf_hud());
     stats_load(DATA("stats.json"));
 
     const std::string font_path = s_branding.font_path.empty()
@@ -950,6 +940,7 @@ int main(int argc, char *argv[]) {
         }
 
         SDL_GL_SwapWindow(s_window);
+        perf_frame_end();
         if (s_state != STATE_PLAYING) menu_frame_wait();
 
         if (s_quit_requested) running = false;  /* external app launched */
@@ -960,7 +951,7 @@ int main(int argc, char *argv[]) {
 
     s_launcher.on_quit();
     if (s_state == STATE_PLAYING) stop_game(true);
-    if (s_audio_dev) SDL_CloseAudioDevice(s_audio_dev);
+    audio_close();
     sfx_shutdown();
     ui_shutdown();
     SDL_GL_DeleteContext(s_glctx);

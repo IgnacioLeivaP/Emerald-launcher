@@ -24,6 +24,8 @@ set(EL_SOURCES
     src/stats.cpp
     src/status.cpp
     src/pause.cpp
+    src/audio.cpp
+    src/perf.cpp
     src/ui.c
     src/gl.c
     src/sfx.c
@@ -183,9 +185,22 @@ else()
         target_link_libraries(emerald_launcher PRIVATE OpenGL::GL)
     endif()
 
+    # ── Unit tests: `ctest` from the build directory ─────────────────────
+    option(EL_TESTS "Build the unit tests (el_tests)" ON)
+    if(EL_TESTS)
+        enable_testing()
+        add_executable(el_tests
+            tests/main.cpp tests/test_audio.cpp tests/test_db.cpp tests/test_misc.cpp
+            src/audio.cpp src/db.cpp src/fsutil.cpp src/i18n.cpp src/prefs.cpp src/stats.cpp
+            src/boxshape.c)
+        target_include_directories(el_tests PRIVATE src include tests)
+        target_link_libraries(el_tests PRIVATE SDL2::SDL2)
+        add_test(NAME el_tests COMMAND el_tests)
+    endif()
+
     if(WIN32)
         target_sources(emerald_launcher PRIVATE resources.rc)
-        target_link_libraries(emerald_launcher PRIVATE comdlg32)
+        target_link_libraries(emerald_launcher PRIVATE comdlg32 psapi)
         add_custom_command(TARGET emerald_launcher POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:SDL2::SDL2>

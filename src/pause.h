@@ -18,6 +18,7 @@ enum PauseAction {
     PAUSE_SCREENSHOT,
     PAUSE_SHADER,          /* pause_shader() has the new shader id */
     PAUSE_CONTROLS,
+    PAUSE_PERF,            /* toggle the performance overlay */
     PAUSE_RESET,
     PAUSE_NEXT_WEEK,
     PAUSE_QUIT
@@ -33,6 +34,7 @@ struct PauseInfo {
     bool        can_reset = false;
     bool        controls = false;  /* show the Controls row                 */
     int         shader = 0;
+    bool        perf = false;      /* performance overlay on               */
     bool        next_week = false; /* the current week is done, more follow */
     int         week = 0;          /* current week, 1-based                 */
 };
