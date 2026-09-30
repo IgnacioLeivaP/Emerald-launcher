@@ -116,8 +116,10 @@ void perf_draw(bool in_game) {
         float lw = (float)ui_text_width(px, lines[i]);
         if (lw > w) w = lw;
     }
-    const float x = 8.0f, y = 8.0f;
-    ui_round_rect(x, y, w + 16.0f, lh * (float)n + 10.0f, 6.0f, 0.0f, 0.0f, 0.0f, 0.70f);
+    /* Out of the way: top right in-game, above the hint bar in the launcher. */
+    const float bw = w + 16.0f, bh = lh * (float)n + 10.0f;
+    const float x = 1280.0f - bw - 8.0f, y = in_game ? 8.0f : 720.0f - 28.0f - bh - 8.0f;
+    ui_round_rect(x, y, bw, bh, 6.0f, 0.0f, 0.0f, 0.0f, 0.70f);
     for (int i = 0; i < n; i++) {
         const bool bad = i == 0 && s_fps > 0.0 && s_fps < 57.0;
         ui_text_px(x + 8.0f, y + 5.0f + lh * (float)i, px, lines[i], bad ? 1.0f : 0.70f,

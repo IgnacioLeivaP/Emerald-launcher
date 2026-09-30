@@ -26,6 +26,8 @@ set(EL_SOURCES
     src/pause.cpp
     src/audio.cpp
     src/perf.cpp
+    src/input.cpp
+    src/controls.cpp
     src/ui.c
     src/gl.c
     src/sfx.c
@@ -190,11 +192,17 @@ else()
     if(EL_TESTS)
         enable_testing()
         add_executable(el_tests
-            tests/main.cpp tests/test_audio.cpp tests/test_db.cpp tests/test_misc.cpp
+            tests/main.cpp tests/test_audio.cpp tests/test_db.cpp tests/test_misc.cpp tests/test_input.cpp
             src/audio.cpp src/db.cpp src/fsutil.cpp src/i18n.cpp src/prefs.cpp src/stats.cpp
-            src/boxshape.c)
+            src/input.cpp src/toast.cpp src/ui.c src/gl.c src/boxshape.c)
         target_include_directories(el_tests PRIVATE src include tests)
-        target_link_libraries(el_tests PRIVATE SDL2::SDL2)
+        target_link_libraries(el_tests PRIVATE SDL2::SDL2 SDL2_ttf::SDL2_ttf SDL2_image::SDL2_image)
+        if(EL_GLES)
+            target_compile_definitions(el_tests PRIVATE EL_GLES=1)
+            target_link_libraries(el_tests PRIVATE ${GLESV2_LIBRARY})
+        else()
+            target_link_libraries(el_tests PRIVATE OpenGL::GL)
+        endif()
         add_test(NAME el_tests COMMAND el_tests)
     endif()
 

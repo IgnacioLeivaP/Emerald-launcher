@@ -1,4 +1,5 @@
 #include "pause.h"
+#include "controls.h"
 #include "i18n.h"
 #include "renderer.h"
 #include "savestate.h"
@@ -315,6 +316,7 @@ void pause_draw(PadStyle style) {
         if (s_confirm) draw_confirm(a);
     }
 
+    if (controls_is_open()) return;            /* it draws its own hints */
     Hint h[4];
     int n = 0;
     if (s_confirm) {

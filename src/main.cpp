@@ -9,6 +9,8 @@
 #include "renderer.h"
 #include "ui.h"
 #include "audio.h"
+#include "controls.h"
+#include "input.h"
 #include "perf.h"
 #include "pause.h"
 #include "savestate.h"
@@ -118,9 +120,7 @@ static size_t audio_batch_cb(const int16_t *data, size_t frames) {
 }
 
 /* ── Input ───────────────────────────────────────────────────────────── */
-static bool s_keys[512]   = {};
-static bool s_btns[32]    = {};
-static int  s_axes[8]     = {};   /* SDL_CONTROLLER_AXIS_* values */
+/* Players, bindings and the pad / keyboard state live in input.cpp. */
 static int  s_stick_dir   = 0;    /* launcher menu Y: -1 up / 1 down / 0 center */
 static int  s_stick_lx    = 0;    /* launcher menu X: -1 left / 1 right / 0 center */
 static int  s_stick_dir_x = 0;    /* pause menu X:    -1 left / 1 right / 0 center */
@@ -132,44 +132,22 @@ static int  s_stick_dir_y = 0;    /* pause menu Y:    -1 up / 1 down / 0 center 
 static bool   s_input_masked = false;
 static Uint32 s_mask_tick = 0;
 
-static bool any_input_held(void) {
-    for (bool b : s_btns) if (b) return true;
-    for (bool k : s_keys) if (k) return true;
-    return false;
-}
-
 static void input_poll_cb(void) {
     /* (A key whose release got lost can't block the game for long.) */
-    if (s_input_masked && (!any_input_held() || SDL_GetTicks() - s_mask_tick > 1000))
+    if (s_input_masked && (!input_any_held() || SDL_GetTicks() - s_mask_tick > 1000))
         s_input_masked = false;
 }
+
 static int16_t input_state_cb(unsigned port, unsigned dev, unsigned idx, unsigned id) {
     (void)idx;
-    if (s_input_masked) return 0;
-    if (port != 0 || dev != RETRO_DEVICE_JOYPAD) return 0;
-    switch (id) {
-    /* D-pad OR left analog stick (axis 1 = LEFTY, axis 0 = LEFTX). */
-    case RETRO_DEVICE_ID_JOYPAD_UP:     return (s_keys[SDL_SCANCODE_UP]    || s_btns[SDL_CONTROLLER_BUTTON_DPAD_UP] || s_axes[1] < -STICK_DEAD) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (s_keys[SDL_SCANCODE_DOWN]  || s_btns[SDL_CONTROLLER_BUTTON_DPAD_DOWN] || s_axes[1] >  STICK_DEAD) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (s_keys[SDL_SCANCODE_LEFT]  || s_btns[SDL_CONTROLLER_BUTTON_DPAD_LEFT] || s_axes[0] < -STICK_DEAD) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (s_keys[SDL_SCANCODE_RIGHT] || s_btns[SDL_CONTROLLER_BUTTON_DPAD_RIGHT] || s_axes[0] >  STICK_DEAD) ? 1:0;
-#ifdef __SWITCH__
-    /* SDL reports the Switch pad by position (Xbox layout): Nintendo A (right)
-       is SDL's B, Nintendo B (bottom) is SDL's A. */
-    case RETRO_DEVICE_ID_JOYPAD_A:      return s_btns[SDL_CONTROLLER_BUTTON_B] ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_B:      return s_btns[SDL_CONTROLLER_BUTTON_A] ? 1:0;
-#else
-    case RETRO_DEVICE_ID_JOYPAD_A:      return (s_keys[SDL_SCANCODE_X]     || s_btns[SDL_CONTROLLER_BUTTON_A]) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_B:      return (s_keys[SDL_SCANCODE_Z]     || s_btns[SDL_CONTROLLER_BUTTON_B]) ? 1:0;
-#endif
-    case RETRO_DEVICE_ID_JOYPAD_X:      return (s_keys[SDL_SCANCODE_S]     || s_btns[SDL_CONTROLLER_BUTTON_Y]) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_Y:      return (s_keys[SDL_SCANCODE_A]     || s_btns[SDL_CONTROLLER_BUTTON_X]) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_L:      return (s_keys[SDL_SCANCODE_Q]     || s_btns[SDL_CONTROLLER_BUTTON_LEFTSHOULDER])  ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_R:      return (s_keys[SDL_SCANCODE_W]     || s_btns[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_START:  return (s_keys[SDL_SCANCODE_RETURN]|| s_btns[SDL_CONTROLLER_BUTTON_START]) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_SELECT: return (s_keys[SDL_SCANCODE_RSHIFT]|| s_btns[SDL_CONTROLLER_BUTTON_BACK])  ? 1:0;
-    default: return 0;
+    if (s_input_masked || dev != RETRO_DEVICE_JOYPAD) return 0;
+    if (id == 256) {                               /* RETRO_DEVICE_ID_JOYPAD_MASK */
+        int16_t mask = 0;
+        for (unsigned b = 0; b < RB_COUNT; b++)
+            if (input_state(port, b)) mask |= (int16_t)(1 << b);
+        return mask;
     }
+    return input_state(port, id);
 }
 
 /* ── Video ───────────────────────────────────────────────────────────── */
@@ -301,6 +279,10 @@ static bool launch_game(const LaunchRequest &req) {
         core_unload();
         return false;
     }
+
+    /* Two players on the standard ports (a second controller joins as P2). */
+    core_set_port_device(0, RETRO_DEVICE_JOYPAD);
+    core_set_port_device(1, RETRO_DEVICE_JOYPAD);
 
     if (!renderer_init()) {
         fprintf(stderr,"renderer_init failed\n");
@@ -444,6 +426,7 @@ static PauseInfo pause_info(void) {
     }
     pi.can_reset = core_can_reset();
     pi.perf      = perf_enabled();
+    pi.controls  = true;
     pi.shader    = prefs_get_shader(s_current.group_key);
     pi.next_week = s_current.is_sequential && s_current.has_next_week && pause_week_done();
     pi.week      = s_current.entry_idx + 1;
@@ -475,6 +458,10 @@ static void take_screenshot(void) {
 }
 
 static void pause_ui_input(UiInput in) {
+    if (controls_is_open()) {                 /* the Controls screen is on top */
+        controls_ui_input(in);
+        return;
+    }
     const PauseAction action = pause_input(in);
     if (!pause_is_open()) { s_input_masked = true; s_mask_tick = SDL_GetTicks(); }
     switch (action) {
@@ -501,6 +488,9 @@ static void pause_ui_input(UiInput in) {
         core_reset();
         toast_show(tr("Game reset"));
         break;
+    case PAUSE_CONTROLS:
+        controls_open();
+        break;
     case PAUSE_PERF:
         perf_set_enabled(!perf_enabled());
         prefs_set_perf_hud(perf_enabled());
@@ -523,6 +513,10 @@ static void pause_ui_input(UiInput in) {
 /* Returns false if app should quit */
 static bool handle_event(const SDL_Event &ev) {
     if (ev.type == SDL_QUIT) return false;
+
+    input_handle_event(ev);                   /* pad / key state, players */
+    /* Waiting for a new button in the Controls screen: it gets everything. */
+    if (controls_capturing() && controls_event(ev)) return true;
 
     /* Fullscreen toggle (F11 / Alt+Enter) and window resize — all states.
        Ignore key auto-repeat so a held key doesn't toggle repeatedly. */
@@ -547,11 +541,9 @@ static bool handle_event(const SDL_Event &ev) {
         return true;
     }
 
-    /* Left analog stick — store axis values (used in-game) and drive menu
-       navigation (edge-triggered up/down) in the launcher. */
+    /* Left analog stick: menu navigation (edge-triggered) in the launcher
+       and the pause menu. In-game it's read through input.cpp. */
     if (ev.type == SDL_CONTROLLERAXISMOTION) {
-        if (ev.caxis.axis < 8)
-            s_axes[ev.caxis.axis] = ev.caxis.value;
         if (s_state == STATE_LAUNCHER) {
             /* Left stick acts as the d-pad (press + release, so holding it
                auto-repeats); the right stick turns the focused 3D box. */
@@ -591,11 +583,6 @@ static bool handle_event(const SDL_Event &ev) {
         return true;
     }
 
-    /* Controllers plugged in later work everywhere, not only in-game. */
-    if (ev.type == SDL_CONTROLLERDEVICEADDED) {
-        SDL_GameControllerOpen(ev.cdevice.which);
-        return true;
-    }
 
     if (s_state == STATE_SPLASH) return true;
 
@@ -613,23 +600,16 @@ static bool handle_event(const SDL_Event &ev) {
         }
         if (ev.type == SDL_MOUSEWHEEL)
             s_launcher.handle_mouse_wheel(ev.wheel.y);
-        if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
-            bool down = (ev.type == SDL_KEYDOWN);
-            s_keys[ev.key.keysym.scancode] = down;
-            s_launcher.handle_key((int)ev.key.keysym.sym, down);
-        }
-        if (ev.type == SDL_CONTROLLERBUTTONDOWN || ev.type == SDL_CONTROLLERBUTTONUP) {
-            bool down = (ev.type == SDL_CONTROLLERBUTTONDOWN);
-            s_btns[ev.cbutton.button] = down;
-            s_launcher.handle_button(ev.cbutton.button, down);
-        }
+        if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP)
+            s_launcher.handle_key((int)ev.key.keysym.sym, ev.type == SDL_KEYDOWN);
+        if (ev.type == SDL_CONTROLLERBUTTONDOWN || ev.type == SDL_CONTROLLERBUTTONUP)
+            s_launcher.handle_button(ev.cbutton.button, ev.type == SDL_CONTROLLERBUTTONDOWN);
         return true;
     }
 
     /* STATE_PLAYING */
     if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
         bool down = (ev.type == SDL_KEYDOWN);
-        s_keys[ev.key.keysym.scancode] = down;
         if (down) {
             s_pad_style = STYLE_KEYBOARD;
             const SDL_Keycode sym = ev.key.keysym.sym;
@@ -639,8 +619,10 @@ static bool handle_event(const SDL_Event &ev) {
                 case SDLK_DOWN:  pause_ui_input(IN_DOWN);  break;
                 case SDLK_LEFT:  pause_ui_input(IN_LEFT);  break;
                 case SDLK_RIGHT: pause_ui_input(IN_RIGHT); break;
-                case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: pause_ui_input(IN_CONFIRM); break;
+                case SDLK_RETURN: case SDLK_KP_ENTER: pause_ui_input(IN_CONFIRM); break;
+                case SDLK_SPACE: pause_ui_input(controls_is_open() ? IN_INSPECT : IN_CONFIRM); break;
                 case SDLK_ESCAPE: case SDLK_BACKSPACE: pause_ui_input(IN_BACK); break;
+                case SDLK_DELETE: pause_ui_input(IN_INSPECT); break;
                 default: break;
                 }
             } else if (ev.key.repeat == 0) {
@@ -652,7 +634,6 @@ static bool handle_event(const SDL_Event &ev) {
     }
     if (ev.type == SDL_CONTROLLERBUTTONDOWN || ev.type == SDL_CONTROLLERBUTTONUP) {
         bool down = (ev.type == SDL_CONTROLLERBUTTONDOWN);
-        if (ev.cbutton.button < 32) s_btns[ev.cbutton.button] = down;
         if (down) {
             s_pad_style = PAD_STYLE;
             const int btn = ev.cbutton.button;
@@ -664,6 +645,7 @@ static bool handle_event(const SDL_Event &ev) {
                 case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: pause_ui_input(IN_RIGHT); break;
                 case SDL_CONTROLLER_BUTTON_LEFTSTICK:
                 case SDL_CONTROLLER_BUTTON_START:      pause_ui_input(IN_BACK);  break;
+                case SDL_CONTROLLER_BUTTON_Y:          pause_ui_input(IN_INSPECT); break;   /* top */
                 default:
                     if (btn == PAD_CONFIRM)     pause_ui_input(IN_CONFIRM);
                     else if (btn == PAD_CANCEL) pause_ui_input(IN_BACK);
@@ -747,6 +729,7 @@ static void tick_playing(void) {
     ui_begin();
     pause_draw_hud(s_pad_style);
     pause_draw(s_pad_style);
+    controls_draw(s_pad_style);
     toast_draw();
     perf_draw(true);
     ui_end();
@@ -873,9 +856,8 @@ int main(int argc, char *argv[]) {
     s_launcher.set_app_name(s_branding.app_name);
     s_launcher.load(std::move(groups));
 
-    /* Open any connected gamepads */
-    for (int i=0; i<SDL_NumJoysticks(); i++)
-        if (SDL_IsGameController(i)) SDL_GameControllerOpen(i);
+    /* Controllers (players 1-4) and the button mapping */
+    input_init(DATA("input.json"));
 
     s_splash_start = SDL_GetTicks();
     sfx_play_boot();

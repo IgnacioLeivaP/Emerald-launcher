@@ -112,7 +112,7 @@ private:
     void start_play(int group, int entry, bool resume);
     void resume_input(UiInput in);
     void draw_resume_prompt(void);
-    bool modal_open(void) const { return m_config_open || m_resume_open; }
+    bool modal_open(void) const;
     bool ensure_3d(void);
     void set_view_3d(bool on);
     void dispatch(UiInput in);

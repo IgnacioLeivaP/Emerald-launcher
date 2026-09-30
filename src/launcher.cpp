@@ -1,5 +1,6 @@
 #include "launcher.h"
 #include "boxart.h"
+#include "controls.h"
 #include "perf.h"
 #include "renderer.h"
 #include "fsutil.h"
@@ -33,6 +34,7 @@ enum {
     ROW_VIEW,
     ROW_LANG,
     ROW_PERF,
+    ROW_CONTROLS,
     CONFIG_ROWS
 };
 static const char *LANG_PREFS[] = { "auto", "en", "es" };
@@ -232,6 +234,10 @@ void Launcher::handle_axis(int axis, int value) {
 
 void Launcher::handle_mouse_button(float x, float y, int button, bool down) {
     if (m_groups.empty()) return;
+    if (controls_is_open()) {
+        if (down && button == 3) { controls_close(); sfx_play_back(); }
+        return;
+    }
     if (m_resume_open) {
         if (down && button == 3) { m_resume_open = false; sfx_play_back(); }
         if (!down && button == 1)
@@ -273,6 +279,7 @@ void Launcher::handle_mouse_wheel(int dy) {
 
 void Launcher::dispatch(UiInput in) {
     if (m_groups.empty()) return;
+    if (controls_is_open()) { controls_ui_input(in); return; }
     if (m_resume_open) { resume_input(in); return; }
     if (m_config_open) { config_input(in); return; }
     if (in_3d())       { m_shelf.input(in); return; }
@@ -305,7 +312,10 @@ void Launcher::config_input(UiInput in) {
     case IN_UP:   m_config_sel = (m_config_sel - 1 + CONFIG_ROWS) % CONFIG_ROWS; sfx_play_nav(); break;
     case IN_DOWN: m_config_sel = (m_config_sel + 1) % CONFIG_ROWS;               sfx_play_nav(); break;
     case IN_LEFT: case IN_RIGHT:
-        if (m_config_sel >= ROW_VIEW) { change_option(m_config_sel, in == IN_LEFT ? -1 : 1); sfx_play_nav(); }
+        if (m_config_sel >= ROW_VIEW && m_config_sel != ROW_CONTROLS) {
+            change_option(m_config_sel, in == IN_LEFT ? -1 : 1);
+            sfx_play_nav();
+        }
         break;
     case IN_CONFIRM:
         if (m_config_sel < NUM_SHADERS) {
@@ -342,6 +352,8 @@ void Launcher::change_option(int row, int d) {
         perf_set_enabled(!perf_enabled());
         prefs_set_perf_hud(perf_enabled());
         prefs_save();
+    } else if (row == ROW_CONTROLS) {
+        controls_open();
     }
 }
 
@@ -403,6 +415,8 @@ void Launcher::confirm_selection(void) {
         request_play(m_selected, m_sub_sel);
     }
 }
+
+bool Launcher::modal_open(void) const { return m_config_open || m_resume_open || controls_is_open(); }
 
 /* The user picked a version: ask first if it can continue from where they
    left it, then start it (the shelf plays its launch animation first). */
@@ -528,9 +542,10 @@ void Launcher::draw(void) {
     m_shelf.draw_overlay(m_style, m_app_name, modal_open());
     if (m_config_open) {
         draw_config_modal();
-        draw_config_hints();
+        if (!controls_is_open()) draw_config_hints();
     }
     if (m_resume_open) draw_resume_prompt();
+    controls_draw(m_style);
     m_shelf.draw_fade();
     toast_draw();
     perf_section_end(PERF_UI);
@@ -568,8 +583,9 @@ void Launcher::draw_config_hints(void) {
         h[n++] = {HB_BACK, tr("Cancel")};
     } else {
         h[n++] = {HB_DPAD_V, tr("Navigate")};
-        if (m_config_sel >= ROW_VIEW) h[n++] = {HB_DPAD_H, tr("Change")};
-        else                          h[n++] = {HB_CONFIRM, m_config_sel == ROW_CLEAR ? tr("Delete saves") : tr("Apply")};
+        if (m_config_sel == ROW_CONTROLS)  h[n++] = {HB_CONFIRM, tr("Open")};
+        else if (m_config_sel >= ROW_VIEW) h[n++] = {HB_DPAD_H, tr("Change")};
+        else h[n++] = {HB_CONFIRM, m_config_sel == ROW_CLEAR ? tr("Delete saves") : tr("Apply")};
         h[n++] = {HB_BACK, tr("Close")};
     }
     uikit_hint_bar(h, n, m_style, nullptr);
@@ -594,7 +610,8 @@ void Launcher::draw_classic(void) {
 
     if (m_config_open) {
         draw_config_modal();
-        draw_config_hints();
+        if (!controls_is_open()) draw_config_hints();
+        controls_draw(m_style);
     } else if (m_resume_open) {
         draw_resume_prompt();
     } else {
@@ -1145,6 +1162,8 @@ void Launcher::draw_config_modal(void) {
                 label = tr("Performance info");
                 opts[0] = tr("Off"); opts[1] = tr("On"); nopts = 2;
                 active = perf_enabled() ? 1 : 0;
+            } else if (row == ROW_CONTROLS) {
+                label = tr("Controls...");
             }
             float vr = hov ? GOLD_R : 0.85f, vg = hov ? GOLD_G : 0.85f, vb = hov ? GOLD_B : 0.80f;
             ui_text_px(tx + 4.0f, ty + 2.0f, 20, label, vr, vg, vb, 1.0f);
