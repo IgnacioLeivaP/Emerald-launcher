@@ -31,3 +31,6 @@ prefs.json
 progress.json
 *.srm
 switch/cores/
+
+# Visual test output (tools/visual-test/run.sh)
+visual-test-out/
