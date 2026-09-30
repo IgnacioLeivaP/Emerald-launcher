@@ -151,7 +151,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
     nx_generate_nacp(emerald_launcher.nacp
         NAME    "Emerald Launcher"
         AUTHOR  "IgnacioLeivaP"
-        VERSION "2.0.0")
+        VERSION "2.1.0")
 
     nx_create_nro(emerald_launcher
         NACP  emerald_launcher.nacp

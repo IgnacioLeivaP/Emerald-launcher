@@ -130,7 +130,6 @@ void Launcher::rebuild_view(const std::string &keep_key) {
         v = std::move(sorted);
     }
 
-    boxart_drop_queue();              /* queued box art points into the old list */
     const std::string config_key = (m_config_group >= 0 && m_config_group < (int)m_groups.size())
                                    ? m_groups[(size_t)m_config_group].key : keep_key;
     m_groups = std::move(v);

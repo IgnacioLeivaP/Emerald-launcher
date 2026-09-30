@@ -436,6 +436,7 @@ function entryCard(g,e,ei){
     card.append(el('div',{class:'row'},
       field('Switch NRO', ext.nro, v=>ext.nro=v, {grow:1, ph:'sdmc:/switch/app.nro'}),
       fileField('PC EXE', ext.exe, v=>ext.exe=v, {grow:1, exts:['.exe'], ph:'C:/.../app.exe'}),
+      field('Linux (opcional)', ext.linux, optSet(ext,'linux'), {grow:1, ph:'/home/.../app'}),
       field('argv', ext.argv, v=>ext.argv=v, {ph:'opcional'})));
   } else {
     card.append(el('div',{class:'row'},

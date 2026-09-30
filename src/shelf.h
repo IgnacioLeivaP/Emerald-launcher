@@ -34,6 +34,7 @@ class Shelf {
 public:
     bool init(void);                     /* GL setup; false → 3D unavailable */
     bool ready(void) const { return m_ready; }
+    /* Show this list (keeps built box art; resets the view). */
     void attach(const std::vector<GameGroup> *groups);
     void select(int group);
     int  selected(void) const { return m_sel; }

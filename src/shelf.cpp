@@ -158,7 +158,9 @@ void Shelf::attach(const std::vector<GameGroup> *groups) {
     m_launching = false;
     m_action_sent = false;
     m_action = ShelfAction{};
-    boxart_release();
+    /* Built boxes stay (they're keyed by game and version); the ones still
+       queued point into the previous list, so they go. */
+    boxart_drop_queue();
 }
 
 void Shelf::select(int g) {

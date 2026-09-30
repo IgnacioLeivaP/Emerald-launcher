@@ -1,19 +1,29 @@
 # Emerald Launcher
 
+[![CI](https://github.com/IgnacioLeivaP/Emerald-launcher/actions/workflows/ci.yml/badge.svg)](https://github.com/IgnacioLeivaP/Emerald-launcher/actions/workflows/ci.yml)
+
 A small, controller-driven game launcher for a curated *Legend of Zelda* collection,
 running libretro cores **in-process**. Built in C/C++ with SDL2 + OpenGL, it runs on
 **Windows/Linux desktop** and as **Nintendo Switch homebrew** (`.nro`) from the same
 source tree.
 
 - **Emerald Launcher 2.0 — the 3D shelf**: every game is a game box you can browse, pick
-  up and turn around. Games with several versions show up as a *stack* of boxes, so you
-  can see what's inside before pressing anything ([details below](#emerald-launcher-20--the-3d-shelf)).
+  up and turn around, shaped like its platform's real retail box (NES, SNES and N64
+  cardboard boxes, small Game Boy boxes, a CD-i plastic case). Games with several
+  versions show up as a *stack* of boxes, so you can see what's inside before pressing
+  anything ([details below](#emerald-launcher-20--the-3d-shelf)).
 - Browse games grouped by title, with per-version logos, screenshots and descriptions
-  (the original list view is still available as **Classic list**).
+  (the original list view is still available as **Classic list**). Mark **favorites**,
+  sort by title, year, platform or what you played last, and let the shelf browse by
+  itself when idle (**attract mode**).
 - Light systems (NES, SNES, Game Boy/Color, GBA) emulate **inside the launcher** via
-  statically-linked libretro cores.
-- Heavy systems (N64) are delegated to **RetroArch** via chainload.
-- Custom CRT/bloom/ScaleFX shaders, save-RAM handling, and an in-game overlay.
+  libretro cores; heavy systems (N64) are delegated to **RetroArch** via chainload.
+- An **in-game menu** with **save states**, **Continue where you left off**,
+  **screenshots**, live shader switching and **button remapping**; up to **four
+  players**; audio with **dynamic rate control** (no pops or crackles).
+- **Play time and saves** shown on every game; **English and Spanish** UI (and
+  per-language descriptions in `db.json`); colors and **menu music** configurable in
+  `branding.json`.
 - **Ancient Stone Tablets mode** — recreates the BS Zelda 4-week Satellaview broadcast:
   the launcher auto-detects when you've finished a week and carries your save into the
   next one ([details below](#ancient-stone-tablets--automatic-weekly-progression)).
@@ -57,7 +67,17 @@ the info panel lists every version by name. The button hint says what will happe
 | **Look at box** | Picks the focused box up and turns it over: the back cover has the description, screenshots and version notes. Turn it around with ◀ ▶, the right stick or the mouse. |
 
 The version you play last becomes the front of its stack, and the launcher reopens on
-the game you were on.
+the game you were on. The info panel also shows how long you've played a game and when;
+version chips carry a dot when that version has a saved game and a ▶ when it can
+**continue** from where you left it.
+
+**Favorites and order.** `F` (keyboard), `−` (Switch) or `Back`/`View` (Xbox) marks the
+focused game as a favorite (★ next to its title). **Settings → Order** sorts the shelf by
+db.json order, title, year, platform, recently played or most played; **Show** switches
+between all games and favorites only.
+
+**Attract mode.** After a minute without input the shelf browses by itself, turning each
+box, until any button is pressed (on by default, **Settings → Attract mode**).
 
 ### Controls
 
@@ -70,17 +90,69 @@ the game you were on.
 | Turn the box (while looking) | ◀ ▶ / right stick | ◀ ▶ / right stick | ← → | drag |
 | Turn the focused box a bit | right stick | right stick | — | drag |
 | Jump 5 games | L / R | LB / RB | PgUp / PgDn (Q / E) | — |
+| Favorite | − | Back / View | F | — |
 | Settings | Y or + | X or Start | Tab | — |
+| Performance info | (Settings) | (Settings) | F3 | — |
 
-On the Switch the touch screen works too (tap a box). In-game controls are unchanged
-(L3 / `Esc` opens the return-to-launcher prompt).
+On the Switch the touch screen works too (tap a box).
 
-### Settings: 3D shelf or classic list
+In-game:
 
-**Settings** (Y / Tab) now has a **Launcher view** row to switch between the *3D Shelf*
-and the *Classic list* (the original carousel, which now also shows a version-count badge
-and lists the versions). The choice is saved in `prefs.json`. If the 3D renderer can't
-start on some GPU, the launcher falls back to the classic list by itself.
+| Action | Switch | Xbox pad (PC) | Keyboard |
+|--------|--------|---------------|----------|
+| In-game menu | L3 | L3 | Esc |
+| Next week (Ancient Stone Tablets, once complete) | R3 | R3 | Tab |
+| Screenshot | (menu) | (menu) | F12 |
+
+The game's own buttons can be changed in **Controls** (see below).
+
+### In-game menu
+
+L3 / `Esc` pauses the game and opens its menu:
+
+- **Resume**
+- **Save state / Load state** — one slot per version (`saves/states/<stem>.state`), with a
+  picture of the saved moment and how long ago it was saved.
+- **Take screenshot** — saved at the game's display aspect in a `captures` folder next to
+  the ROM (`roms/Z1/captures/Zelda1original-20260930-101500.png`). New screenshots show
+  up with that version's screenshots right away, and become its box art when `db.json`
+  lists none.
+- **Shader** — change it live with ◀ ▶ (remembered per game).
+- **Controls**, **Performance info**, **Reset game**, **Next week** (sequential games) and
+  **Return to launcher**.
+
+**Continue where you left off.** Leaving a game (from the menu, or closing the window)
+keeps an automatic state. The next time you play that version the launcher asks:
+*Continue* (from that moment) or *Start game* (boot normally with your in-game save).
+
+### Controls and players
+
+**Settings → Controls…** (or **Controls** in the in-game menu) lists every game button
+with its controller button and keyboard key: pick one, press the new button (L3 / `Esc`
+cancel), or clear it. The mapping is saved in `input.json` next to `db.json`.
+
+Every controller that connects becomes the next player (P1–P4, shown in the Controls
+screen); the keyboard always plays as player 1. Two-player NES and SNES games work with a
+second controller.
+
+### Settings
+
+**Settings** (Y / Tab) has the focused game's **shader** and **Clear Save Data**
+(saves and save states), and options for all games:
+
+| Row | Choices |
+|-----|---------|
+| View | *3D Shelf* or *Classic list* (the original carousel, with a version-count badge) |
+| Order | db.json order, A-Z, year, platform, recently played, most played |
+| Show | all games, or favorites only |
+| Language | Auto (the system's), English, Español |
+| Menu music | on / off (when `branding.json` provides a track) |
+| Attract mode | on / off |
+| Performance info | frame rate, core / render time, audio and memory, for testing on hardware |
+| Controls… | the button mapping (see above) |
+
+Everything is saved in `prefs.json` next to `db.json`. If the 3D renderer can't start on
+some GPU, the launcher falls back to the classic list by itself.
 
 ### Your own box art (optional)
 
@@ -120,13 +192,17 @@ the Homebrew Menu loads). You don't need to compile anything to try it on a Swit
 The NRO bundles only the launcher, its UI assets, and the statically-linked open-source
 cores (gambatte / snes9x / fceumm / mGBA) — **no ROMs, BIOS, or game artwork are included**.
 
+Releases are built by CI: pushing a tag such as `v2.1.0` builds the NRO and the Windows
+zip and publishes them. Every other push also builds them (Actions → the run →
+*Artifacts*), together with screenshots of the main screens.
+
 ---
 
 ## Repository layout
 
 ```
 src/            C/C++ source (shared across PC and Switch; platform code behind #ifdef)
-include/        Vendored header-only deps (nlohmann/json, MIT)
+include/        Vendored deps: nlohmann/json (MIT), stb_vorbis (public domain)
 imgs/           UI chrome (background, tablet, icons)
 sounds/         UI sound effects (.wav)
 switch/         Switch icon + (gitignored) static core .a libraries
@@ -137,6 +213,9 @@ CMakeLists.txt  Cross-platform build (desktop OpenGL 3.3 / Switch GLES 3.0)
 package.sh         Assemble a shippable Windows dist/ folder
 package-switch.sh  Assemble the Switch NRO + sdmc:/emerald/ content folder
 SWITCH_DEV_NOTES.md  Accumulated notes on the Switch port
+tests/          Unit tests (ctest)
+tools/          check-i18n.py, check-shaders.py, build-switch-cores.sh, visual-test/
+.github/        CI and release workflows
 ```
 
 `roms/`, `saves/`, `system/` (BIOS), `cores/`, `*.dll`, `switch/cores/*.a`, `cores-src/`
@@ -162,10 +241,22 @@ default:
     "icon":       "branding/icon.png",
     "splash":     "branding/splash.png",
     "background": "branding/background.jpg",
-    "font":       "branding/font.ttf"
+    "font":       "branding/font.ttf",
+    "music":      "branding/menu.ogg"
+  },
+  "music_volume": 0.6,
+  "theme": {
+    "accent": "#F2C726", "accent_dim": "#B38F1A", "panel": "#08120D",
+    "spot": "#338552", "floor": "#010604", "glow": "#F2B32E"
   }
 }
 ```
+
+`music` is an `.ogg` (streamed) or `.wav` that loops under the menus and fades out when a
+game starts. `theme` recolors the UI (`accent`: titles, focus and chips; `accent_dim`:
+section labels; `panel`: panels and the hint bar) and the 3D stage (`spot`: the light
+behind the focused box, `floor`, `glow`: the focused box's outline); the values above are
+the defaults.
 
 Asset paths are relative to the content root, same as `db.json`'s image paths (the
 optional per-game / per-version `cover` images of the 3D shelf work the same way). Put
@@ -179,9 +270,18 @@ recompiling/repackaging.
 
 ```
 roms/            your ROMs + the per-game logo/screenshot PNGs referenced by db.json
+roms/**/captures/  screenshots taken in-game, next to each ROM
 saves/           .srm save files (created automatically)
+saves/states/    save states and "continue" states, with their pictures
 system/          BIOS files some cores need (e.g. Satellaview BIOS for BS-Zelda)
+prefs.json       settings, favorites, last game (created automatically)
+stats.json       play time per version
+input.json       the button mapping
 ```
+
+Texts in `db.json` can have a Spanish version next to the English one, shown when the
+launcher is in Spanish: `title_es` and `description_es` on a game, `title_es` and
+`version_desc_es` on a version (the `maker/` editor has fields for them).
 
 Supported extensions and their cores (from `db.json`):
 
@@ -205,12 +305,13 @@ launcher recreates that event automatically so you can play it end-to-end today:
 - The four weeks are one **sequential** group — each week unlocks once you've cleared the
   previous one, so you play them in order.
 - While in-game, the launcher watches the cartridge RAM and **detects when you've collected
-  that week's stone tablets** (via each entry's `week_complete_mask`). A `W1▸W2` badge then
-  appears in the corner.
-- Press **R3** (or `Tab`) to advance to the next week — your progress is **carried forward**
-  automatically (`carry_save_from` copies the previous week's save into the new one), just
-  like the original broadcast continued your file.
-- Press **L3** (or `Esc`) any time to return to the launcher.
+  that week's stone tablets** (via each entry's `week_complete_mask`). A *Week 1 complete!*
+  notice then appears in the corner.
+- Press **R3** (or `Tab`) to advance to the next week (or pick **Next week** in the in-game
+  menu) — your progress is **carried forward** automatically (`carry_save_from` copies the
+  previous week's save into the new one), just like the original broadcast continued your
+  file.
+- Press **L3** (or `Esc`) any time for the in-game menu, and **Return to launcher** from it.
 - On the 3D shelf, **A** on the game opens its four weeks with the current one in front.
   Locked weeks show a padlock; a completed week can be replayed at any time (progress
   never moves backwards).
@@ -246,6 +347,23 @@ cmake --build build
 GLES driver such as Mesa's): the exact renderer path the Switch uses, shaders included,
 so Switch rendering can be checked on a PC.
 
+If the launcher is started from another folder (a shortcut, a file manager), it moves to
+the executable's folder when `db.json` is there.
+
+### Linux: external programs and RetroArch
+
+External entries can name a Linux program next to the Windows `exe` and the Switch `nro`:
+
+```json
+"external": { "nro": "sdmc:/switch/soh/soh.nro", "exe": "C:/Games/SoH/soh.exe",
+              "linux": "/home/me/soh/soh.elf", "argv": "" }
+```
+
+It's started with its arguments (quotes group them) without blocking; if it can't start,
+the launcher says so and stays open. For N64 through RetroArch, `db.json`'s `retroarch`
+section takes `exe_linux` (default `retroarch`, from the PATH) and `cores_linux` (default:
+`~/.config/retroarch/cores`, then the usual system folders); cores are `<core>.so`.
+
 ### Cores (desktop)
 
 Download the libretro core DLLs (e.g. from the RetroArch buildbot) and place them in a
@@ -271,16 +389,15 @@ pacman -S switch-dev switch-sdl2 switch-sdl2_image switch-sdl2_ttf
 ### 1. Build the static libretro cores
 
 The in-launcher cores are linked statically, so each must be built for libnx as a
-`.a`. For each core, clone its libretro source and build with `make platform=libnx`, then
-copy the resulting `<core>_libretro_libnx.a` into `switch/cores/`:
+`.a`. One script clones gambatte, snes9x, fceumm and mGBA into `cores-src/`, builds them
+with `make platform=libnx` and copies the `<core>_libretro_libnx.a` files into
+`switch/cores/`:
 
 ```bash
-# example: snes9x (repeat for gambatte, fceumm, mgba)
-git clone --depth 1 https://github.com/libretro/snes9x
-cd snes9x/libretro
-DEVKITPRO=/opt/devkitpro make platform=libnx -j4
-cp snes9x_libretro_libnx.a  <project>/switch/cores/
+tools/build-switch-cores.sh            # or e.g. tools/build-switch-cores.sh snes9x
 ```
+
+(`DEVKITPRO` defaults to `/opt/devkitpro`; set `SNES9X_REF=<commit>` etc. to pin a core.)
 
 Cores currently wired into the build (`switch/cores/`):
 `gambatte_libretro_libnx.a`, `snes9x_libretro_libnx.a`,
@@ -321,6 +438,32 @@ N64 titles are launched through RetroArch — install RetroArch with its cores i
 
 See [`SWITCH_DEV_NOTES.md`](SWITCH_DEV_NOTES.md) for deeper notes on the port (GLES
 shaders, paths, audio, aspect ratio, the multi-core setup, etc.).
+
+### Testing on the console
+
+**Settings → Performance info** (also in the in-game menu) shows the frame rate and the
+slowest frame, the time spent in the emulator core and in rendering (3D and 2D in the
+launcher), the audio queue and its rate correction, and the memory in use. The log goes
+to `sdmc:/emerald/emerald_log.txt`.
+
+---
+
+## Development
+
+- **Unit tests** — built with the desktop version; run `ctest --test-dir build`. They
+  cover `db.json` loading (platform filters, missing ROMs, captures, external and
+  RetroArch entries), week unlocking, prefs / stats / input round trips, the audio rate
+  control, translations and the box shapes.
+- **Visual test** — `tools/visual-test/run.sh build/emerald_launcher out/` runs the
+  launcher on placeholder content in a virtual display and saves screenshots of its main
+  screens ([details](tools/visual-test/README.md)).
+- **Checks** — `tools/check-shaders.py` compiles every shader as GLSL ES 3.00 (what the
+  Switch runs); `tools/check-i18n.py` makes sure every UI string has a Spanish
+  translation with matching `%` placeholders.
+- **CI** — every push builds Linux (OpenGL and OpenGL ES), Windows (MSYS2) and the Switch
+  NRO (devkitPro, with the static cores), runs the tests and checks, and uploads the
+  Windows build, the NRO and the screenshots as artifacts. Pushing a `v*` tag publishes a
+  GitHub Release with the NRO and the Windows zip.
 
 ---
 

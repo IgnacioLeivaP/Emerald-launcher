@@ -200,3 +200,30 @@ Paquetes comunes:
 | `dkp-pacman: command not found` | Shell equivocado | Usar `C:\devkitPro\msys2\usr\bin\pacman.exe` desde PowerShell |
 | Botones A/B invertidos | SDL2 mapeo posicional vs etiquetas físicas Switch | Ver sección de botones arriba |
 | Menú se controla con analógico derecho | Comparaciones con 273/274 (SDL1) en lugar de SDLK_UP/DOWN | Usar siempre las constantes SDLK_* |
+
+---
+
+## Emerald Launcher 2.x — notas del port
+
+- **Idioma del sistema**: `setInitialize()` + `setGetSystemLanguage(&code)` devuelve el
+  código como texto empaquetado en un `u64` ("es", "es-419", "en-US"...); basta con
+  comparar los dos primeros caracteres (`src/i18n.cpp`).
+- **Memoria en uso** (HUD de rendimiento): `svcGetInfo(&used, InfoType_UsedMemorySize,
+  CUR_PROCESS_HANDLE, 0)` (`src/perf.cpp`).
+- **Save states con cores estáticos**: `retro_serialize_size`, `retro_serialize`,
+  `retro_unserialize`, `retro_reset` y `retro_set_controller_port_device` ya estaban en la
+  lista de símbolos que `objcopy` prefija por core; `src/core.c` los declara con
+  `CORE_EXTERNS` y los guarda en `BuiltinCore`.
+- **Audio**: el juego abre su propio dispositivo a 48 kHz y remuestrea con control
+  dinámico de tasa (±0,5 %) para que la cola no se vacíe ni se llene (`src/audio.cpp`).
+  El dispositivo del menú (efectos + música) se cierra mientras corre un juego; los
+  efectos que suenan en ese momento se mezclan en el audio del juego.
+- **Botones**: SDL numera los botones del Switch por posición (estilo Xbox): el botón A
+  (derecha) es `SDL_CONTROLLER_BUTTON_B`. Los valores por defecto y las etiquetas de la
+  pantalla de Controles lo tienen en cuenta (`src/input.cpp`).
+- **Archivos**: todo lo del usuario (prefs.json, stats.json, input.json, saves/states/,
+  capturas) vive junto a db.json en `sdmc:/emerald/`, y se escribe con archivo temporal +
+  rename (`fs_write_atomic`); en el Switch el rename no reemplaza un archivo existente, así
+  que se borra el destino antes.
+- **Cores estáticos**: `tools/build-switch-cores.sh` los clona en `cores-src/` y los
+  compila con `make platform=libnx`; CI usa la imagen `devkitpro/devkita64`.
