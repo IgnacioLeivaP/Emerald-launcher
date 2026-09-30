@@ -1,4 +1,5 @@
 #include "boxart.h"
+#include "i18n.h"
 #include "boxshape.h"
 #include "scene3d.h"
 #include "ui.h"
@@ -330,7 +331,7 @@ void logo_block(const Art &a, float x, float y, float w, float h, bool light_bg)
                     UI_IMG_FIT | UI_IMG_SMOOTH | UI_IMG_SILHOUETTE, 0, 0, 0, light_bg ? 0.30f : 0.60f);
         ui_image_ex(x, y, w, h, a.logo->c_str(), UI_IMG_FIT | UI_IMG_SMOOTH, 1, 1, 1, 1);
     } else {
-        title_text(a.g->title, x, y, w, h, light_bg);
+        title_text(db_title(*a.g), x, y, w, h, light_bg);
     }
 }
 
@@ -349,7 +350,7 @@ void version_band(const Art &a, float x, float y, float w, float h, const float 
 }
 
 const char *platform_label(const Art &a) {
-    return a.e->platform.empty() ? "Emerald Collection" : a.e->platform.c_str();
+    return a.e->platform.empty() ? tr("Emerald Collection") : a.e->platform.c_str();
 }
 
 /* Platform label with one color per letter (N64 style). */
@@ -507,7 +508,7 @@ void spine_strip(const Art &a, float L, float T) {
     const Palette &p = *a.pal;
     const bool light = a.fam == FAM_SNES;
     const bool is_case = a.sh->style == BOXSTYLE_CASE;
-    const char *title = a.g->title.c_str();
+    const char *title = db_title(*a.g).c_str();
     float x0 = 12.0f, x1 = L - 34.0f;
     const float *tc = p.text;
 
@@ -561,7 +562,7 @@ void top_strip(const Art &a, float x, float y, float W, float T) {
     const bool dark_box = a.fam == FAM_NES || a.fam == FAM_N64;
     const float *bg = dark_box ? PLASTIC : p.banner;
     ui_rect(x, y, W, T, bg[0], bg[1], bg[2], 1.0f);
-    const char *title = a.g->title.c_str();
+    const char *title = db_title(*a.g).c_str();
     int px = fit_px(title, W * 0.62f, std::min(26, (int)(T * 0.42f)), 10);
     const float *tc = p.text;
     ui_text_px(x + (W - (float)ui_text_width(px, title)) * 0.5f, y + (T - 7.0f - lh(px)) * 0.5f, px, title,
@@ -626,8 +627,8 @@ void draw_back(const Art &a, const Canvas &c) {
         tw = W - 2.0f * M - cw - 24.0f;
     }
 
-    int tpx = fit_px(a.g->title.c_str(), tw, 38, 24);
-    y = ui_text_wrap(tx, y, tw, tpx, (float)tpx * 1.15f, a.g->title.c_str(), UI_ALIGN_CENTER, 2,
+    int tpx = fit_px(db_title(*a.g).c_str(), tw, 38, 24);
+    y = ui_text_wrap(tx, y, tw, tpx, (float)tpx * 1.15f, db_title(*a.g).c_str(), UI_ALIGN_CENTER, 2,
                      GOLD[0], GOLD[1], GOLD[2], 1.0f);
     {
         std::string meta;
@@ -669,13 +670,13 @@ void draw_back(const Art &a, const Canvas &c) {
         y = ui_text_wrap(tx, y, tw, 21, 28.0f, text.c_str(), UI_ALIGN_LEFT, max_lines, col[0], col[1], col[2], 1.0f);
         y += 14.0f;
     };
-    section("THE ADVENTURE", a.g->description, body, 7);
+    section(tr("THE ADVENTURE"), db_description(*a.g), body, 7);
     if (a.g->sequential) {
         char wk[64];
-        snprintf(wk, sizeof(wk), "Week %d of %d of the original broadcast.", a.idx + 1, (int)a.g->entries.size());
-        section("THIS WEEK", a.e->version_desc.empty() ? std::string(wk) : a.e->version_desc, dim, 5);
+        snprintf(wk, sizeof(wk), tr("Week %d of %d of the original broadcast."), a.idx + 1, (int)a.g->entries.size());
+        section(tr("THIS WEEK"), db_version_desc(*a.e).empty() ? std::string(wk) : db_version_desc(*a.e), dim, 5);
     } else {
-        section("THIS VERSION", a.e->version_desc, dim, 6);
+        section(tr("THIS VERSION"), db_version_desc(*a.e), dim, 6);
     }
     if (bottom - y > 80.0f && a.logo) {
         float lh2 = std::min(bottom - y - 16.0f, 130.0f);
@@ -713,7 +714,7 @@ Art make_art(const GameGroup &g, int idx, int shape) {
     a.pal = &PALETTES[a.fam];
     a.shot = pick_shot(g, idx);
     a.logo = pick_logo(g, idx);
-    a.version = a.e->title.empty() ? std::string("Original") : a.e->title;
+    a.version = db_entry_title(*a.e).empty() ? std::string(tr("Original")) : db_entry_title(*a.e);
     a.year = a.e->year > 0 ? a.e->year : g.year;
     a.atlas = Canvas{nullptr, 0, 0};
     return a;

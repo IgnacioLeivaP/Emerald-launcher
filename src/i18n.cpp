@@ -28,8 +28,9 @@ const char *const ES[][2] = {
     {"Spin", "Girar"},
     {"Put back", "Dejar"},
     {"Navigate", "Navegar"},
-    {"Front", "Frente"},
-    {"Side", "Lado"},
+    {"Front##box", "Portada"},
+    {"Back##box", "Contraportada"},
+    {"Side##box", "Lomo"},
     {"ONE VERSION", "UNA VERSIÓN"},
     {"%d VERSIONS", "%d VERSIONES"},
     {"%d WEEKS", "%d SEMANAS"},
@@ -119,6 +120,51 @@ const char *const ES[][2] = {
     {"This cannot be undone.", "No se puede deshacer."},
     {"Confirm", "Confirmar"},
 
+    /* Classic list */
+    {"%d versions: ", "%d versiones: "},
+    {"This version:", "Esta versión:"},
+    {"In-game: R3 = advance week (when complete)", "En el juego: R3 = siguiente semana (al completarla)"},
+    {"In-game: Tab = advance week (when complete)", "En el juego: Tab = siguiente semana (al completarla)"},
+    {"Emerald Collection", "Colección Emerald"},
+    {"Week %d of %d of the original broadcast.", "Semana %d de %d de la emisión original."},
+
+    /* Key names in the hints */
+    {"Enter", "Intro"},
+    {"Space", "Espacio"},
+    {"Mouse", "Ratón"},
+    {"Arrows", "Flechas"},
+
+    /* Controls */
+    {"Controls...", "Controles..."},
+    {"CONTROLLER", "MANDO"},
+    {"KEYBOARD", "TECLADO"},
+    {"Controller", "Mando"},
+    {"Up", "Arriba"},
+    {"Down", "Abajo"},
+    {"Left", "Izquierda"},
+    {"Right", "Derecha"},
+    {"Start", "Start"},
+    {"D-pad Up", "Cruceta arriba"},
+    {"D-pad Down", "Cruceta abajo"},
+    {"D-pad Left", "Cruceta izq."},
+    {"D-pad Right", "Cruceta der."},
+    {"Press a button...", "Pulsa un botón..."},
+    {"Press a key...", "Pulsa una tecla..."},
+    {"L3 cancels", "L3 cancela"},
+    {"Esc cancels", "Esc cancela"},
+    {"L3 opens the menu in-game, so it can't be used by games.",
+     "L3 abre el menú durante el juego, así que los juegos no pueden usarlo."},
+    {"That key is used by the launcher", "Esa tecla la usa el lanzador"},
+    {"Default controls restored", "Controles restablecidos"},
+    {"Reset to defaults", "Restablecer valores"},
+    {"Reset", "Restablecer"},
+    {"Clear", "Borrar"},
+    {"Open", "Abrir"},
+    {"P%d: keyboard", "J%d: teclado"},
+    {"P%d: -", "J%d: -"},
+    {"Player %d: %s", "Jugador %d: %s"},
+    {"Player %d disconnected", "Jugador %d desconectado"},
+
     /* Toasts */
     {"State saved", "Estado guardado"},
     {"State loaded", "Estado cargado"},
@@ -200,11 +246,25 @@ void i18n_set(Lang lang)      { s_lang = (lang >= 0 && lang < LANG_COUNT) ? lang
 const char *i18n_code(Lang l) { return l == LANG_ES ? "es" : "en"; }
 const char *i18n_name(Lang l) { return l == LANG_ES ? "Español" : "English"; }
 
+/* "Back##box": a key with a context after "##" (the same English word can
+   need different translations); the context never shows. */
+static const char *strip_context(const char *key) {
+    const char *hash = strstr(key, "##");
+    if (!hash) return key;
+    static std::unordered_map<std::string, std::string> shown;
+    auto it = shown.find(key);
+    if (it == shown.end()) it = shown.emplace(key, std::string(key, (size_t)(hash - key))).first;
+    return it->second.c_str();
+}
+
 const char *tr(const char *english) {
-    if (!english || s_lang == LANG_EN) return english;
-    auto &m = table(s_lang);
-    auto it = m.find(english);
-    return it != m.end() ? it->second : english;
+    if (!english) return english;
+    if (s_lang != LANG_EN) {
+        auto &m = table(s_lang);
+        auto it = m.find(english);
+        if (it != m.end()) return it->second;
+    }
+    return strip_context(english);
 }
 
 std::string tr(const std::string &english) { return tr(english.c_str()); }

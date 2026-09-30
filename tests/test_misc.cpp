@@ -103,8 +103,12 @@ TEST(i18n_lookup) {
     CHECK_EQ(std::string(tr("Resume")), std::string("Continuar"));
     CHECK_EQ(std::string(tr("%d VERSIONS")), std::string("%d VERSIONES"));
     CHECK_EQ(std::string(tr("no translation for this")), std::string("no translation for this"));
+    CHECK_EQ(std::string(tr("Back##box")), std::string("Contraportada"));
+    CHECK_EQ(std::string(tr("Back")), std::string("Atrás"));
     i18n_set(LANG_EN);
     CHECK_EQ(std::string(tr("Resume")), std::string("Resume"));
+    CHECK_EQ(std::string(tr("Back##box")), std::string("Back"));        /* context hidden */
+    CHECK_EQ(std::string(tr("Unknown##ctx")), std::string("Unknown"));
     i18n_init("es");
     CHECK_EQ(i18n_lang(), LANG_ES);
     i18n_init("en");

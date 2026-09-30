@@ -142,8 +142,8 @@ LaunchRequest Launcher::make_request(int gi, int idx) const {
     r.carry_srm_from     = e.carry_srm_from;
     r.group_key          = g.key;
     r.stem               = e.stem;
-    r.title              = g.title;
-    r.version            = g.entries.size() > 1 || g.sequential ? e.title : std::string();
+    r.title              = db_title(g);
+    r.version            = g.entries.size() > 1 || g.sequential ? db_entry_title(e) : std::string();
     r.entry_idx          = idx;
     r.is_sequential      = g.sequential;
     r.week_complete_mask = g.sequential ? e.week_complete_mask : 0;
@@ -622,23 +622,23 @@ void Launcher::draw_classic(void) {
             const GameGroup &g = m_groups[(size_t)m_selected];
             if (g.sequential) {
                 int w = std::min(db_progress_get(g.key), (int)g.entries.size() - 1);
-                snprintf(confirm_lbl, sizeof(confirm_lbl), "Play %s", g.entries[(size_t)w].title.c_str());
+                snprintf(confirm_lbl, sizeof(confirm_lbl), tr("Play %s"), db_entry_title(g.entries[(size_t)w]).c_str());
             } else if (g.entries.size() > 1) {
                 snprintf(confirm_lbl, sizeof(confirm_lbl), "Versions (%d)", (int)g.entries.size());
             } else {
                 snprintf(confirm_lbl, sizeof(confirm_lbl), "Play");
             }
-            h[n++] = {HB_DPAD_V, "Navigate"};
+            h[n++] = {HB_DPAD_V, tr("Navigate")};
             h[n++] = {HB_CONFIRM, confirm_lbl};
         } else {
             const GameGroup &g = m_groups[(size_t)m_submenu];
-            h[n++] = {HB_DPAD_V, "Navigate"};
-            h[n++] = {HB_CONFIRM, db_entry_unlocked(g, m_sub_sel) ? "Play" : "Locked"};
-            h[n++] = {HB_BACK, "Back"};
+            h[n++] = {HB_DPAD_V, tr("Navigate")};
+            h[n++] = {HB_CONFIRM, db_entry_unlocked(g, m_sub_sel) ? tr("Play") : tr("Locked")};
+            h[n++] = {HB_BACK, tr("Back")};
         }
-        h[n++] = {HB_SETTINGS, "Settings"};
+        h[n++] = {HB_SETTINGS, tr("Settings")};
 #ifndef __SWITCH__
-        if (m_style == STYLE_KEYBOARD) h[n++] = {HB_FULLSCREEN, "Maximize"};
+        if (m_style == STYLE_KEYBOARD) h[n++] = {HB_FULLSCREEN, tr("Maximize")};
 #endif
         uikit_hint_bar(h, n, m_style, ingame_hint(m_style));
     }
@@ -661,8 +661,8 @@ void Launcher::draw_resume_prompt(void) {
 
     const char *title = tr("Continue where you left off?");
     ui_text_px(x + 36.0f, y + 26.0f, 26, title, GOLD_R, GOLD_G, GOLD_B, 1.0f);
-    std::string sub = g.title;
-    if (g.entries.size() > 1 || g.sequential) sub += "  -  " + e.title;
+    std::string sub = db_title(g);
+    if (g.entries.size() > 1 || g.sequential) sub += "  -  " + db_entry_title(e);
     ui_text_px(x + 36.0f, y + 64.0f, 18, sub.c_str(), 0.86f, 0.88f, 0.84f, 1.0f);
 
     /* The moment it was left. */
@@ -797,7 +797,7 @@ void Launcher::draw_carousel(void) {
             float ts = scale * 1.2f;
             if (ts < 1.0f) ts = 1.0f;
             char buf[48];
-            snprintf(buf, sizeof(buf), "%.24s", g.title.c_str());
+            snprintf(buf, sizeof(buf), "%.24s", db_title(g).c_str());
             ui_text(x + 6, y + h * 0.5f - 4.0f * ts, ts, buf, bright, bright, bright);
         }
 
@@ -865,7 +865,7 @@ void Launcher::draw_submenu(void) {
         else            { cr=0.90f;  cg=0.90f;  cb=0.90f; }
 
         char buf[64];
-        snprintf(buf,sizeof(buf),"%s%s", sel?"> ":"  ", e.title.c_str());
+        snprintf(buf,sizeof(buf),"%s%s", sel?"> ":"  ", db_entry_title(e).c_str());
         if (!unlocked) strncat(buf," [locked]",sizeof(buf)-strlen(buf)-1);
         ui_text(lx, ly+4, 1.5f, buf, cr,cg,cb);
 
@@ -895,7 +895,7 @@ void Launcher::draw_detail(const GameGroup &g, int entry_hint) {
         ui_image(x, y, w, 150.0f, logo->c_str(), 1.0f);
         y += 158.0f;
     } else {
-        ui_text(x, y, 2.5f, g.title.c_str(), GOLD_R,GOLD_G,GOLD_B);
+        ui_text(x, y, 2.5f, db_title(g).c_str(), GOLD_R,GOLD_G,GOLD_B);
         y += 40;
     }
 
@@ -948,10 +948,12 @@ void Launcher::draw_detail(const GameGroup &g, int entry_hint) {
 
     /* In the list, name the versions a game contains before it's opened. */
     if (entry_hint < 0 && !g.sequential && g.entries.size() > 1) {
-        std::string line = std::to_string(g.entries.size()) + " versions: ";
+        char head[64];
+        snprintf(head, sizeof(head), tr("%d versions: "), (int)g.entries.size());
+        std::string line = head;
         for (size_t i = 0; i < g.entries.size(); i++) {
             if (i) line += ", ";
-            line += g.entries[i].title;
+            line += db_entry_title(g.entries[i]);
         }
         y = ui_text_wrap(x, y, w, 18, 22.0f, line.c_str(), UI_ALIGN_LEFT, 2,
                          GOLD_R, GOLD_G, GOLD_B, 1.0f) + 2.0f;
@@ -987,16 +989,16 @@ void Launcher::draw_detail(const GameGroup &g, int entry_hint) {
         }
     };
 
-    draw_wrapped(g.description, 0.92f,0.92f,0.92f);
+    draw_wrapped(db_description(g), 0.92f,0.92f,0.92f);
 
     /* Version-specific description (only when an entry is selected) */
     if (entry_hint >= 0 && entry_hint < (int)g.entries.size()) {
-        const std::string &vdesc = g.entries[entry_hint].version_desc;
+        const std::string &vdesc = db_version_desc(g.entries[entry_hint]);
         if (!vdesc.empty()) {
             y += 6;
             ui_rect(x,y,w,1, GOLD_R,GOLD_G,GOLD_B,0.30f);
             y += 10;
-            ui_text(x, y, 1.2f, "This version:", GOLD_DIM_R,GOLD_DIM_G,GOLD_DIM_B);
+            ui_text(x, y, 1.2f, tr("This version:"), GOLD_DIM_R,GOLD_DIM_G,GOLD_DIM_B);
             y += 18;
             draw_wrapped(vdesc, 0.80f,0.80f,0.75f);
         }
@@ -1010,9 +1012,9 @@ void Launcher::draw_detail(const GameGroup &g, int entry_hint) {
         ui_text(x,y,1.5f,buf, GOLD_R,GOLD_G,GOLD_B);
         y+=24;
 #ifdef __SWITCH__
-        ui_text(x,y,1.2f,"In-game: R3 = advance week (when complete)", 0.65f,0.65f,0.65f);
+        ui_text(x,y,1.2f,tr("In-game: R3 = advance week (when complete)"), 0.65f,0.65f,0.65f);
 #else
-        ui_text(x,y,1.2f,"In-game: Tab = advance week (when complete)", 0.65f,0.65f,0.65f);
+        ui_text(x,y,1.2f,tr("In-game: Tab = advance week (when complete)"), 0.65f,0.65f,0.65f);
 #endif
     }
 
@@ -1088,7 +1090,7 @@ void Launcher::draw_config_modal(void) {
     ty += 38.0f;
     {
         char title[48];
-        snprintf(title, sizeof(title), "%.40s", g.title.c_str());
+        snprintf(title, sizeof(title), "%.40s", db_title(g).c_str());
         ui_text_px(tx, ty, 18, title, 0.80f, 0.80f, 0.75f, 1.0f);
     }
     ty += 26.0f;

@@ -249,6 +249,8 @@ function field(label, value, oninput, opts={}){
   if(opts.ph) inp.placeholder=opts.ph;
   return el('div',{class:'field '+(opts.grow?'grow':'')}, el('label',{},label), inp);
 }
+/* Optional text: an empty field removes the key from db.json. */
+function optSet(obj, key){ return v=>{ if(v) obj[key]=v; else delete obj[key]; }; }
 function imgPrev(path, cls){
   if(!path) return null;
   return el('img',{src:'../'+path, class:cls, onerror:function(){this.style.display='none'}});
@@ -387,6 +389,11 @@ function groupCard(key,g,gi,total){
     'Frente de la caja en la vista 3D, compartido por todas sus versiones. Si queda vacío, el launcher genera la caja con el logo y la primera captura.'));
   body.append(field('Descripción', g.description, v=>g.description=v, {area:1, grow:1}));
   body.append(el('div',{class:'row'},
+    field('Título en español (opcional)', g.title_es, optSet(g,'title_es'), {grow:1, ph:'si difiere del original'})));
+  body.append(field('Descripción en español (opcional)', g.description_es, optSet(g,'description_es'), {area:1, grow:1}));
+  body.append(el('div',{class:'hint',style:'margin:-2px 0 8px'},
+    'El launcher muestra los textos en español cuando su idioma es Español; si un campo queda vacío, usa el texto de arriba.'));
+  body.append(el('div',{class:'row'},
     el('label',{class:'chk'}, checkbox(g.sequential, v=>g.sequential=v), 'Secuencial (semanas, tipo AST)'),
     field('Core de grupo (opcional)', g.core, v=>{ if(v)g.core=v; else delete g.core; }, {grow:1, ph:'opcional, ej. same_cdi_libretro.dll'})));
 
@@ -450,6 +457,9 @@ function entryCard(g,e,ei){
 
   // description
   card.append(field('Descripción de versión', e.version_desc, v=>e.version_desc=v, {area:1}));
+  card.append(el('div',{class:'row'},
+    field('Título de versión en español (opcional)', e.title_es, optSet(e,'title_es'), {grow:1, ph:'ej. Semana 1'})));
+  card.append(field('Descripción de versión en español (opcional)', e.version_desc_es, optSet(e,'version_desc_es'), {area:1}));
 
   // screenshots
   card.append(el('div',{class:'pill'},'Capturas:'));

@@ -615,8 +615,8 @@ void Shelf::draw_shelf_info(float a) {
     const int E = (int)g.entries.size();
     float y = INFO_Y + 6.0f;
 
-    int tpx = fit_px(g.title.c_str(), 1120.0f, 40, 26);
-    text_shadow_center(UI_W * 0.5f, y, tpx, g.title.c_str(), GOLD_R, GOLD_G, GOLD_B, a);
+    int tpx = fit_px(db_title(g).c_str(), 1120.0f, 40, 26);
+    text_shadow_center(UI_W * 0.5f, y, tpx, db_title(g).c_str(), GOLD_R, GOLD_G, GOLD_B, a);
     y += line_h(tpx) + 6.0f;
 
     std::vector<std::string> meta;
@@ -636,17 +636,17 @@ void Shelf::draw_shelf_info(float a) {
     y += 30.0f;
 
     /* The answer to "does this game have other versions?", right here. */
-    char label[32];
-    if (g.sequential)  snprintf(label, sizeof(label), "%d WEEKS", E);
-    else if (E > 1)    snprintf(label, sizeof(label), "%d VERSIONS", E);
-    else               snprintf(label, sizeof(label), "ONE VERSION");
+    char label[48];
+    if (g.sequential)  snprintf(label, sizeof(label), tr("%d WEEKS"), E);
+    else if (E > 1)    snprintf(label, sizeof(label), tr("%d VERSIONS"), E);
+    else               snprintf(label, sizeof(label), "%s", tr("ONE VERSION"));
     const int cpx = 16;
     const float label_w = (float)ui_text_width(15, label) + 14.0f;
     float total = label_w;
     int shown = 0;
     const float more_w = uikit_chip_width("+99", cpx) + 8.0f;
     for (int j = 0; j < E; j++) {
-        float w = uikit_chip_width(g.entries[(size_t)j].title.c_str(), cpx) + 8.0f;
+        float w = uikit_chip_width(db_entry_title(g.entries[(size_t)j]).c_str(), cpx) + 8.0f;
         if (total + w + (j + 1 < E ? more_w : 0.0f) > 1180.0f) break;
         total += w;
         shown++;
@@ -664,7 +664,7 @@ void Shelf::draw_shelf_info(float a) {
     x += label_w;
     const int fr = front(m_sel);
     for (int j = 0; j < shown; j++) {
-        const char *t = g.entries[(size_t)j].title.c_str();
+        const char *t = db_entry_title(g.entries[(size_t)j]).c_str();
         float w;
         if (g.sequential) {
             bool locked = !db_entry_unlocked(g, j);
@@ -680,7 +680,7 @@ void Shelf::draw_shelf_info(float a) {
     if (more[0]) uikit_chip(x, y, more, cpx, false, 0.8f * a);
     y += chip_h + 12.0f;
 
-    ui_text_wrap(150.0f, y, UI_W - 300.0f, 18, 23.0f, g.description.c_str(), UI_ALIGN_CENTER, 2,
+    ui_text_wrap(150.0f, y, UI_W - 300.0f, 18, 23.0f, db_description(g).c_str(), UI_ALIGN_CENTER, 2,
                  OFF_R, OFF_G, OFF_B, a);
 }
 
@@ -688,7 +688,7 @@ void Shelf::draw_shots(const GameGroup &g, int j, float x, float y, float w, flo
     std::vector<const std::string *> shots = shots_of(g, j);
     if (shots.empty()) {
         ui_round_rect_outline(x, y, w, h, 8.0f, 1.5f, GOLD_R, GOLD_G, GOLD_B, 0.25f * a);
-        const char *t = "No screenshots for this version";
+        const char *t = tr("No screenshots for this version");
         ui_text_px(x + (w - (float)ui_text_width(16, t)) * 0.5f, y + (h - line_h(16)) * 0.5f, 16, t,
                    0.55f, 0.58f, 0.54f, a);
         return;
@@ -734,10 +734,10 @@ void Shelf::draw_versions_info(float a) {
     const float lx = 70.0f, lw = 590.0f;
     float y = INFO_Y - 4.0f;
 
-    text_shadow(lx, y, 18, g.title.c_str(), GOLD_DIM_R + 0.1f, GOLD_DIM_G + 0.1f, GOLD_DIM_B + 0.05f, a);
+    text_shadow(lx, y, 18, db_title(g).c_str(), GOLD_DIM_R + 0.1f, GOLD_DIM_G + 0.1f, GOLD_DIM_B + 0.05f, a);
     y += 26.0f;
-    int tpx = fit_px(e.title.c_str(), lw, 36, 22);
-    text_shadow(lx, y, tpx, e.title.c_str(), GOLD_R, GOLD_G, GOLD_B, a);
+    int tpx = fit_px(db_entry_title(e).c_str(), lw, 36, 22);
+    text_shadow(lx, y, tpx, db_entry_title(e).c_str(), GOLD_R, GOLD_G, GOLD_B, a);
     y += line_h(tpx) + 4.0f;
 
     std::vector<std::string> meta;
@@ -765,18 +765,18 @@ void Shelf::draw_versions_info(float a) {
         int prog = db_progress_get(g.key);
         char buf[96];
         if (!db_entry_unlocked(g, j)) {
-            snprintf(buf, sizeof(buf), "Locked - finish %s first", g.entries[(size_t)(j - 1)].title.c_str());
+            snprintf(buf, sizeof(buf), tr("Locked - finish %s first"), db_entry_title(g.entries[(size_t)(j - 1)]).c_str());
             uikit_padlock(lx + 8.0f, y + 9.0f, 18.0f, a);
             text_shadow(lx + 24.0f, y, 16, buf, 0.95f, 0.50f, 0.38f, a);
         } else if (j < prog) {
-            text_shadow(lx, y, 16, "Completed - you can replay it any time", GOLD_R, GOLD_G, GOLD_B, 0.9f * a);
+            text_shadow(lx, y, 16, tr("Completed - you can replay it any time"), GOLD_R, GOLD_G, GOLD_B, 0.9f * a);
         } else {
-            text_shadow(lx, y, 16, "Current week - your save carries over", 0.62f, 0.95f, 0.66f, a);
+            text_shadow(lx, y, 16, tr("Current week - your save carries over"), 0.62f, 0.95f, 0.66f, a);
         }
         y += 24.0f;
     }
 
-    const std::string &desc = e.version_desc.empty() ? g.description : e.version_desc;
+    const std::string &desc = db_version_desc(e).empty() ? db_description(g) : db_version_desc(e);
     int lines = (int)((UI_H - HINT_BAR_H - 10.0f - y) / 23.0f);
     if (lines > 0)
         ui_text_wrap(lx, y, lw, 18, 23.0f, desc.c_str(), UI_ALIGN_LEFT, lines, OFF_R, OFF_G, OFF_B, a);
@@ -788,10 +788,10 @@ void Shelf::draw_inspect_info(float a) {
     const GameGroup &g = group(m_igroup);
     const GameEntry &e = g.entries[(size_t)m_ientry];
     std::vector<std::string> parts;
-    parts.push_back(g.title);
-    if (g.entries.size() > 1) parts.push_back(e.title);
+    parts.push_back(db_title(g));
+    if (g.entries.size() > 1) parts.push_back(db_entry_title(e));
     float c = cosf(m_insp_yaw);
-    parts.push_back(c > 0.35f ? "Front" : (c < -0.35f ? "Back" : "Side"));
+    parts.push_back(c > 0.35f ? tr("Front##box") : (c < -0.35f ? tr("Back##box") : tr("Side##box")));
     meta_line(UI_W * 0.5f, 646.0f, 20, parts, true, GOLD_R, GOLD_G, GOLD_B, a);
 }
 
@@ -807,7 +807,7 @@ void Shelf::draw_box_labels(float a_shelf, float a_ver) {
             if (center > 0.01f && in.g == m_sel) {
                 /* Sticker on the focused stack: how many versions are inside. */
                 char b[24];
-                snprintf(b, sizeof(b), g.sequential ? "%d WEEKS" : "%d VERSIONS", E);
+                snprintf(b, sizeof(b), g.sequential ? tr("%d WEEKS") : tr("%d VERSIONS"), E);
                 float w = uikit_chip_width(b, 15);
                 uikit_chip(in.sx1 - w + 26.0f, in.sy0 - 12.0f, b, 15, true, a_shelf * center);
             }
@@ -825,9 +825,9 @@ void Shelf::draw_box_labels(float a_shelf, float a_ver) {
         if (a_ver > 0.01f && in.g == m_vgroup) {
             const GameEntry &e = g.entries[(size_t)in.j];
             float al = a_ver * clamp01(in.p.bright * 1.25f);
-            int px = fit_px(e.title.c_str(), std::max(90.0f, in.sx1 - in.sx0 + 40.0f), 16, 12);
+            int px = fit_px(db_entry_title(e).c_str(), std::max(90.0f, in.sx1 - in.sx0 + 40.0f), 16, 12);
             if (!in.focus)
-                text_shadow_center(cx, in.sy1 + 8.0f, px, e.title.c_str(), 0.85f, 0.86f, 0.82f, al);
+                text_shadow_center(cx, in.sy1 + 8.0f, px, db_entry_title(e).c_str(), 0.85f, 0.86f, 0.82f, al);
             if (in.locked) uikit_padlock(cx, (in.sy0 + in.sy1) * 0.5f, 46.0f, al);
         }
     }
@@ -847,7 +847,7 @@ void Shelf::draw_header(const std::string &app_name, float a_shelf, float a_ver,
     }
     if (a_ver > 0.01f) {
         const GameGroup &g = group(m_vgroup);
-        snprintf(buf, sizeof(buf), "%s %d / %d", g.sequential ? "Week" : "Version", m_ver + 1,
+        snprintf(buf, sizeof(buf), "%s %d / %d", g.sequential ? tr("Week") : tr("Version"), m_ver + 1,
                  (int)g.entries.size());
         float w = (float)ui_text_width(18, buf);
         text_shadow(UI_W - 26.0f - w, 30.0f - line_h(18) * 0.5f, 18, buf, 0.80f, 0.82f, 0.78f, a_ver);
@@ -867,31 +867,31 @@ void Shelf::draw_hints(PadStyle style) {
     if (m_view == V_SHELF) {
         const GameGroup &g = group(m_sel);
         const int E = (int)g.entries.size();
-        if (g.sequential)  snprintf(confirm_lbl, sizeof(confirm_lbl), "Weeks (%d)", E);
-        else if (E > 1)    snprintf(confirm_lbl, sizeof(confirm_lbl), "Versions (%d)", E);
-        else               snprintf(confirm_lbl, sizeof(confirm_lbl), "Play");
-        h[n++] = {HB_DPAD_H, "Browse"};
+        if (g.sequential)  snprintf(confirm_lbl, sizeof(confirm_lbl), tr("Weeks (%d)"), E);
+        else if (E > 1)    snprintf(confirm_lbl, sizeof(confirm_lbl), tr("Versions (%d)"), E);
+        else               snprintf(confirm_lbl, sizeof(confirm_lbl), "%s", tr("Play"));
+        h[n++] = {HB_DPAD_H, tr("Browse")};
         h[n++] = {HB_CONFIRM, confirm_lbl};
-        h[n++] = {HB_INSPECT, "Look at box"};
-        h[n++] = {HB_SETTINGS, "Settings"};
+        h[n++] = {HB_INSPECT, tr("Look at box")};
+        h[n++] = {HB_SETTINGS, tr("Settings")};
 #ifndef __SWITCH__
-        if (style == STYLE_KEYBOARD) h[n++] = {HB_FULLSCREEN, "Maximize"};
+        if (style == STYLE_KEYBOARD) h[n++] = {HB_FULLSCREEN, tr("Maximize")};
 #endif
     } else if (m_view == V_VERSIONS) {
         const GameGroup &g = group(m_vgroup);
         bool locked = g.sequential && !db_entry_unlocked(g, m_ver);
-        h[n++] = {HB_DPAD_H, g.sequential ? "Week" : "Version"};
-        h[n++] = {HB_CONFIRM, locked ? "Locked" : "Play"};
-        h[n++] = {HB_BACK, "Back"};
-        h[n++] = {HB_INSPECT, "Look at box"};
-        h[n++] = {HB_SETTINGS, "Settings"};
+        h[n++] = {HB_DPAD_H, g.sequential ? tr("Week") : tr("Version")};
+        h[n++] = {HB_CONFIRM, locked ? tr("Locked") : tr("Play")};
+        h[n++] = {HB_BACK, tr("Back")};
+        h[n++] = {HB_INSPECT, tr("Look at box")};
+        h[n++] = {HB_SETTINGS, tr("Settings")};
     } else {
         const GameGroup &g = group(m_igroup);
         bool locked = g.sequential && !db_entry_unlocked(g, m_ientry);
-        h[n++] = {HB_DPAD_H, "Turn over"};
-        h[n++] = {style == STYLE_KEYBOARD ? HB_STICK_R : HB_STICK_R, style == STYLE_KEYBOARD ? "Drag to spin" : "Spin"};
-        h[n++] = {HB_CONFIRM, locked ? "Locked" : "Play"};
-        h[n++] = {HB_BACK, "Put back"};
+        h[n++] = {HB_DPAD_H, tr("Turn over")};
+        h[n++] = {HB_STICK_R, style == STYLE_KEYBOARD ? tr("Drag to spin") : tr("Spin")};
+        h[n++] = {HB_CONFIRM, locked ? tr("Locked") : tr("Play")};
+        h[n++] = {HB_BACK, tr("Put back")};
     }
     uikit_hint_bar(h, n, style, right);
 }

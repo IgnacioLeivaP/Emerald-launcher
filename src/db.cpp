@@ -1,5 +1,6 @@
 #include "db.h"
 #include "fsutil.h"
+#include "i18n.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <fstream>
@@ -272,8 +273,10 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
             if (!platform_allowed(ginfo)) continue;   /* hidden on this platform */
             GameGroup g;
             g.key         = key;
-            g.title       = ginfo.value("title", key);
-            g.description = ginfo.value("description","");
+            g.title          = ginfo.value("title", key);
+            g.title_es       = ginfo.value("title_es","");
+            g.description    = ginfo.value("description","");
+            g.description_es = ginfo.value("description_es","");
             g.year        = ginfo.value("year",0);
             g.sequential  = ginfo.value("sequential",false);
             g.logo_path   = content_path(ginfo.value("logo",""));
@@ -299,8 +302,10 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                     GameEntry e;
                     e.stem         = stem;
                     e.title        = einfo.value("title", stem);
+                    e.title_es     = einfo.value("title_es","");
                     e.platform     = einfo.value("platform","");
                     e.version_desc = einfo.value("version_desc","");
+                    e.version_desc_es = einfo.value("version_desc_es","");
                     e.logo_path    = content_path(einfo.value("logo",""));
                     e.cover_path   = content_path(einfo.value("cover",""));
                     if (einfo.contains("screenshots"))
@@ -399,6 +404,14 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
 
     return groups;
 }
+
+static const std::string &pick(const std::string &en, const std::string &es) {
+    return i18n_lang() == LANG_ES && !es.empty() ? es : en;
+}
+const std::string &db_title(const GameGroup &g)        { return pick(g.title, g.title_es); }
+const std::string &db_description(const GameGroup &g)  { return pick(g.description, g.description_es); }
+const std::string &db_entry_title(const GameEntry &e)  { return pick(e.title, e.title_es); }
+const std::string &db_version_desc(const GameEntry &e) { return pick(e.version_desc, e.version_desc_es); }
 
 bool db_entry_unlocked(const GameGroup &g, int idx) {
     if (!g.sequential || idx==0) return true;

@@ -5,8 +5,10 @@
 struct GameEntry {
     std::string stem;
     std::string title;
+    std::string title_es;          /* optional Spanish text ("title_es" in db.json) */
     std::string platform;
     std::string              version_desc;
+    std::string              version_desc_es;
     std::string              logo_path;
     std::string              cover_path;   /* optional box-art front (3D shelf) */
     std::vector<std::string> screenshots;  /* db.json's first, then in-game captures */
@@ -30,13 +32,22 @@ struct GameEntry {
 struct GameGroup {
     std::string              key;
     std::string              title;
+    std::string              title_es;
     std::string              description;
+    std::string              description_es;
     int                      year       = 0;
     bool                     sequential = false;
     std::vector<GameEntry>   entries;
     std::string              logo_path;
     std::string              cover_path;   /* optional box-art front shared by its versions */
 };
+
+/* Text in the UI language: the "..._es" field of db.json when the launcher
+   is in Spanish and it's there, otherwise the default one. */
+const std::string &db_title(const GameGroup &g);
+const std::string &db_description(const GameGroup &g);
+const std::string &db_entry_title(const GameEntry &e);
+const std::string &db_version_desc(const GameEntry &e);
 
 /* Load db.json + scan roms/ directory. Returns populated groups (only those
    with at least one ROM present on disk). */

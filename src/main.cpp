@@ -378,8 +378,8 @@ static void advance_week(void) {
         req.carry_srm_from = e.carry_srm_from;
         req.group_key      = g.key;
         req.stem           = e.stem;
-        req.title          = g.title;
-        req.version        = e.title;
+        req.title          = db_title(g);
+        req.version        = db_entry_title(e);
         req.entry_idx      = next_idx;
         req.is_sequential  = true;
         /* Keep watching for "week done" in the new week too, so the chain

@@ -1,4 +1,5 @@
 #include "uikit.h"
+#include "i18n.h"
 #include "ui.h"
 
 static const char *face_label(HintBtn b, PadStyle s) {
@@ -15,12 +16,12 @@ static const char *face_label(HintBtn b, PadStyle s) {
 
 static const char *key_label(HintBtn b) {
     switch (b) {
-    case HB_CONFIRM:    return "Enter";
+    case HB_CONFIRM:    return tr("Enter");
     case HB_BACK:       return "Esc";
-    case HB_INSPECT:    return "Space";
+    case HB_INSPECT:    return tr("Space");
     case HB_SETTINGS:   return "Tab";
     case HB_FULLSCREEN: return "F11";
-    case HB_STICK_R:    return "Mouse";
+    case HB_STICK_R:    return tr("Mouse");
     default:            return "";
     }
 }
@@ -76,7 +77,7 @@ float uikit_glyph(float x, float cy, HintBtn btn, PadStyle style, float a) {
         switch (btn) {
         case HB_DPAD_H: { float w = arrow_key(x, cy, 0, a); return w + 3.0f + arrow_key(x + w + 3.0f, cy, 1, a); }
         case HB_DPAD_V: { float w = arrow_key(x, cy, 2, a); return w + 3.0f + arrow_key(x + w + 3.0f, cy, 3, a); }
-        case HB_DPAD:   return keycap(x, cy, "Arrows", a);
+        case HB_DPAD:   return keycap(x, cy, tr("Arrows"), a);
         default:        return keycap(x, cy, key_label(btn), a);
         }
     }
