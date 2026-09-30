@@ -41,17 +41,19 @@ static const float PAD    =   20.0f;
 static const float CARD_W = 220.0f;
 static const float CARD_H = 140.0f;
 
-/* SDL game-controller buttons (positional, Xbox-style numbering). Nintendo
-   A (right) = SDL 1, B (bottom) = SDL 0 — the opposite of Xbox. */
+/* SDL game-controller buttons are positional (Xbox layout): the Switch's
+   A (right) is SDL's B and its B (bottom) is SDL's A. */
 #ifdef __SWITCH__
-static const int BTN_A = 1, BTN_B = 0;
+static const int BTN_A = SDL_CONTROLLER_BUTTON_B, BTN_B = SDL_CONTROLLER_BUTTON_A;
 #else
-static const int BTN_A = 0, BTN_B = 1;
+static const int BTN_A = SDL_CONTROLLER_BUTTON_A, BTN_B = SDL_CONTROLLER_BUTTON_B;
 #endif
-static const int BTN_LEFT_FACE = 2;   /* Nintendo Y / Xbox X: settings */
-static const int BTN_TOP_FACE  = 3;   /* Nintendo X / Xbox Y: look at box */
-static const int BTN_START = 6, BTN_L = 9, BTN_R = 10;
-static const int BTN_UP = 11, BTN_DOWN = 12, BTN_LEFT = 13, BTN_RIGHT = 14;
+static const int BTN_LEFT_FACE = SDL_CONTROLLER_BUTTON_X;   /* Nintendo Y / Xbox X: settings    */
+static const int BTN_TOP_FACE  = SDL_CONTROLLER_BUTTON_Y;   /* Nintendo X / Xbox Y: look at box */
+static const int BTN_START = SDL_CONTROLLER_BUTTON_START;
+static const int BTN_L = SDL_CONTROLLER_BUTTON_LEFTSHOULDER, BTN_R = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;
+static const int BTN_UP = SDL_CONTROLLER_BUTTON_DPAD_UP, BTN_DOWN = SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+static const int BTN_LEFT = SDL_CONTROLLER_BUTTON_DPAD_LEFT, BTN_RIGHT = SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
 
 static const int STICK_DEAD = 8000;
 

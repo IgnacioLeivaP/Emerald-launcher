@@ -307,9 +307,17 @@ bool core_load_game(const char *rom_path, const char *srm_path) {
     FILE *f = fopen(rom_path, "rb");
     if (!f) { fprintf(stderr,"core: cannot open ROM: %s\n",rom_path); return false; }
     fseek(f, 0, SEEK_END); long size = ftell(f); fseek(f, 0, SEEK_SET);
-    void *data = malloc(size);
-    if (!data) { fclose(f); return false; }
-    fread(data, 1, (size_t)size, f); fclose(f);
+    if (size < 0) size = 0;
+    /* Empty files (e.g. a stub that the core opens by path) load as no data. */
+    void *data = size > 0 ? malloc((size_t)size) : NULL;
+    if (size > 0 && !data) { fclose(f); return false; }
+    size_t got = size > 0 ? fread(data, 1, (size_t)size, f) : 0;
+    fclose(f);
+    if (got != (size_t)size) {
+        fprintf(stderr,"core: short read on ROM: %s\n",rom_path);
+        free(data);
+        return false;
+    }
 
     if (srm_path) {
         strncpy(s_srm_path, srm_path, sizeof(s_srm_path)-1);
@@ -330,8 +338,11 @@ bool core_load_game(const char *rom_path, const char *srm_path) {
     size_t slen = s_retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
     if (sram && slen > 0) {
         FILE *sf = fopen(s_srm_path, "rb");
-        if (sf) { fread(sram, 1, slen, sf); fclose(sf);
-                  fprintf(stderr,"core: loaded SRAM from %s\n",s_srm_path); }
+        if (sf) {
+            size_t got = fread(sram, 1, slen, sf);
+            fclose(sf);
+            fprintf(stderr,"core: loaded SRAM from %s (%zu bytes)\n",s_srm_path,got);
+        }
     }
     return true;
 }

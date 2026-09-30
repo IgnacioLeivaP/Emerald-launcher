@@ -15,27 +15,29 @@
 #include "prefs.h"
 #include "paths.h"
 #include "branding.h"
+#include "fsutil.h"
 
 #ifdef __SWITCH__
 #  include <switch.h>   /* envSetNextLoad for NRO chainloading */
+#elif defined(_WIN32)
+#  include <direct.h>   /* _chdir */
+#else
+#  include <cerrno>
+#  include <spawn.h>
+#  include <sys/wait.h>
+#  include <unistd.h>
+#  include <vector>
+extern char **environ;
 #endif
 
 /* ── Configuration ──────────────────────────────────────────────────── */
 static const int   WIN_W       = 1280;
 static const int   WIN_H       = 720;
-#ifdef __SWITCH__
-static const char *DB_PATH       = "sdmc:/emerald/db.json";
-static const char *ROMS_DIR      = "sdmc:/emerald/roms";
-static const char *SAVES_DIR     = "sdmc:/emerald/saves";
-static const char *CORES_DIR     = "sdmc:/emerald/cores";
-static const char *BRANDING_PATH = "sdmc:/emerald/branding.json";
-#else
-static const char *DB_PATH       = "db.json";
-static const char *ROMS_DIR      = "roms";
-static const char *SAVES_DIR     = "saves";
-static const char *CORES_DIR     = "cores";
-static const char *BRANDING_PATH = "branding.json";
-#endif
+static const char *DB_PATH       = DATA("db.json");
+static const char *ROMS_DIR      = DATA("roms");
+static const char *SAVES_DIR     = DATA("saves");
+static const char *CORES_DIR     = DATA("cores");
+static const char *BRANDING_PATH = DATA("branding.json");
 
 /* ── State ───────────────────────────────────────────────────────────── */
 typedef enum { STATE_SPLASH, STATE_LAUNCHER, STATE_PLAYING } AppState;
@@ -126,27 +128,29 @@ static int  s_stick_dir_x = 0;    /* overlay menu X:  -1 left / 1 right / 0 cent
 
 static void input_poll_cb(void) {}
 static int16_t input_state_cb(unsigned port, unsigned dev, unsigned idx, unsigned id) {
+    (void)idx;
     if (port != 0 || dev != RETRO_DEVICE_JOYPAD) return 0;
     switch (id) {
     /* D-pad OR left analog stick (axis 1 = LEFTY, axis 0 = LEFTX). */
-    case RETRO_DEVICE_ID_JOYPAD_UP:     return (s_keys[SDL_SCANCODE_UP]    || s_btns[11] || s_axes[1] < -STICK_DEAD) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (s_keys[SDL_SCANCODE_DOWN]  || s_btns[12] || s_axes[1] >  STICK_DEAD) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (s_keys[SDL_SCANCODE_LEFT]  || s_btns[13] || s_axes[0] < -STICK_DEAD) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (s_keys[SDL_SCANCODE_RIGHT] || s_btns[14] || s_axes[0] >  STICK_DEAD) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_UP:     return (s_keys[SDL_SCANCODE_UP]    || s_btns[SDL_CONTROLLER_BUTTON_DPAD_UP] || s_axes[1] < -STICK_DEAD) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_DOWN:   return (s_keys[SDL_SCANCODE_DOWN]  || s_btns[SDL_CONTROLLER_BUTTON_DPAD_DOWN] || s_axes[1] >  STICK_DEAD) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_LEFT:   return (s_keys[SDL_SCANCODE_LEFT]  || s_btns[SDL_CONTROLLER_BUTTON_DPAD_LEFT] || s_axes[0] < -STICK_DEAD) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_RIGHT:  return (s_keys[SDL_SCANCODE_RIGHT] || s_btns[SDL_CONTROLLER_BUTTON_DPAD_RIGHT] || s_axes[0] >  STICK_DEAD) ? 1:0;
 #ifdef __SWITCH__
-    /* Nintendo A (right)=SDL btn 1, B (bottom)=SDL btn 0 — opposite of Xbox. */
-    case RETRO_DEVICE_ID_JOYPAD_A:      return s_btns[1] ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_B:      return s_btns[0] ? 1:0;
+    /* SDL reports the Switch pad by position (Xbox layout): Nintendo A (right)
+       is SDL's B, Nintendo B (bottom) is SDL's A. */
+    case RETRO_DEVICE_ID_JOYPAD_A:      return s_btns[SDL_CONTROLLER_BUTTON_B] ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_B:      return s_btns[SDL_CONTROLLER_BUTTON_A] ? 1:0;
 #else
-    case RETRO_DEVICE_ID_JOYPAD_A:      return (s_keys[SDL_SCANCODE_X]     || s_btns[0])  ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_B:      return (s_keys[SDL_SCANCODE_Z]     || s_btns[1])  ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_A:      return (s_keys[SDL_SCANCODE_X]     || s_btns[SDL_CONTROLLER_BUTTON_A]) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_B:      return (s_keys[SDL_SCANCODE_Z]     || s_btns[SDL_CONTROLLER_BUTTON_B]) ? 1:0;
 #endif
-    case RETRO_DEVICE_ID_JOYPAD_X:      return (s_keys[SDL_SCANCODE_S]     || s_btns[3])  ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_Y:      return (s_keys[SDL_SCANCODE_A]     || s_btns[2])  ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_L:      return (s_keys[SDL_SCANCODE_Q]     || s_btns[9])  ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_R:      return (s_keys[SDL_SCANCODE_W]     || s_btns[10]) ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_START:  return (s_keys[SDL_SCANCODE_RETURN]|| s_btns[6])  ? 1:0;
-    case RETRO_DEVICE_ID_JOYPAD_SELECT: return (s_keys[SDL_SCANCODE_RSHIFT]|| s_btns[4])  ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_X:      return (s_keys[SDL_SCANCODE_S]     || s_btns[SDL_CONTROLLER_BUTTON_Y]) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_Y:      return (s_keys[SDL_SCANCODE_A]     || s_btns[SDL_CONTROLLER_BUTTON_X]) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_L:      return (s_keys[SDL_SCANCODE_Q]     || s_btns[SDL_CONTROLLER_BUTTON_LEFTSHOULDER])  ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_R:      return (s_keys[SDL_SCANCODE_W]     || s_btns[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER]) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_START:  return (s_keys[SDL_SCANCODE_RETURN]|| s_btns[SDL_CONTROLLER_BUTTON_START]) ? 1:0;
+    case RETRO_DEVICE_ID_JOYPAD_SELECT: return (s_keys[SDL_SCANCODE_RSHIFT]|| s_btns[SDL_CONTROLLER_BUTTON_BACK])  ? 1:0;
     default: return 0;
     }
 }
@@ -164,23 +168,11 @@ static void video_refresh_cb(const void *data, unsigned w, unsigned h, size_t pi
 }
 
 /* ── Save helpers ─────────────────────────────────────────────────────── */
-static bool copy_file(const std::string &src, const std::string &dst) {
-    FILE *in = fopen(src.c_str(),"rb");
-    if (!in) return false;
-    FILE *out = fopen(dst.c_str(),"wb");
-    if (!out) { fclose(in); return false; }
-    char buf[4096]; size_t n;
-    while ((n=fread(buf,1,sizeof(buf),in))>0) fwrite(buf,1,n,out);
-    fclose(in); fclose(out);
-    return true;
-}
-
 /* Carry save from previous week into current week's srm slot. */
 static void carry_save_if_needed(const LaunchRequest &req) {
     if (req.carry_srm_from.empty()) return;
-    FILE *test = fopen(req.srm_path.c_str(),"rb");
-    if (test) { fclose(test); return; } /* already have a save for this week */
-    if (!copy_file(req.carry_srm_from, req.srm_path))
+    if (fs_exists(req.srm_path)) return;   /* already have a save for this week */
+    if (!fs_copy(req.carry_srm_from, req.srm_path))
         fprintf(stderr,"carry: failed to copy %s -> %s\n",
                 req.carry_srm_from.c_str(), req.srm_path.c_str());
     else
@@ -188,9 +180,39 @@ static void carry_save_if_needed(const LaunchRequest &req) {
 }
 
 /* ── External launch (chainload NRO on Switch / spawn exe on PC) ──────── */
+#if !defined(__SWITCH__) && !defined(_WIN32)
+/* Split an argv string the way a shell would for simple cases: spaces
+   separate arguments, double quotes group them ("C:/My Games/rom.sfc"). */
+static std::vector<std::string> split_args(const std::string &s) {
+    std::vector<std::string> out;
+    std::string cur;
+    bool quoted = false, have = false;
+    for (char c : s) {
+        if (c == '"') { quoted = !quoted; have = true; continue; }
+        if ((c == ' ' || c == '\t') && !quoted) {
+            if (have) out.push_back(cur);
+            cur.clear();
+            have = false;
+            continue;
+        }
+        cur += c;
+        have = true;
+    }
+    if (have) out.push_back(cur);
+    return out;
+}
+
+/* Collect finished child processes (RetroArch sessions launched with the
+   launcher kept open) so they don't linger as zombies. */
+static void reap_children(void) {
+    while (waitpid(-1, nullptr, WNOHANG) > 0) {}
+}
+#endif
+
 /* Launches an external program. SoH-style entries close the launcher; RetroArch
    chainload entries (keep_open) leave the PC launcher running in the background.
-   On Switch we always exit (envSetNextLoad replaces the running NRO). */
+   On Switch we always exit (envSetNextLoad replaces the running NRO). If the
+   program can't be started the launcher stays open. */
 static void launch_external(const LaunchRequest &req) {
     if (req.exec_path.empty()) {
         fprintf(stderr, "external: no executable for this platform — not launching\n");
@@ -215,8 +237,20 @@ static void launch_external(const LaunchRequest &req) {
         fprintf(stderr, "external: CreateProcess failed for %s\n", req.exec_path.c_str());
     }
 #else
-    if (system(req.exec_path.c_str()) >= 0 && !req.keep_open)
-        s_quit_requested = true;
+    /* Linux / other POSIX: spawn it with its arguments, without a shell and
+       without waiting for it. posix_spawnp searches PATH ("retroarch"). */
+    std::vector<std::string> args = split_args(req.exec_argv);
+    std::vector<char *> argv;
+    argv.push_back(const_cast<char *>(req.exec_path.c_str()));
+    for (auto &a : args) argv.push_back(const_cast<char *>(a.c_str()));
+    argv.push_back(nullptr);
+    pid_t pid = 0;
+    int rc = posix_spawnp(&pid, req.exec_path.c_str(), nullptr, nullptr, argv.data(), environ);
+    if (rc == 0) {
+        if (!req.keep_open) s_quit_requested = true;   /* close unless told to stay */
+    } else {
+        fprintf(stderr, "external: couldn't start %s: %s\n", req.exec_path.c_str(), strerror(rc));
+    }
 #endif
 }
 
@@ -389,22 +423,24 @@ static bool handle_event(const SDL_Event &ev) {
     /* Left analog stick — store axis values (used in-game) and drive menu
        navigation (edge-triggered up/down) in the launcher. */
     if (ev.type == SDL_CONTROLLERAXISMOTION) {
-        if (ev.caxis.axis >= 0 && ev.caxis.axis < 8)
+        if (ev.caxis.axis < 8)
             s_axes[ev.caxis.axis] = ev.caxis.value;
         if (s_state == STATE_LAUNCHER) {
             /* Left stick acts as the d-pad (press + release, so holding it
                auto-repeats); the right stick turns the focused 3D box. */
             int nd = (ev.caxis.value < -STICK_DEAD) ? -1
                    : (ev.caxis.value >  STICK_DEAD) ?  1 : 0;
+            const int up = SDL_CONTROLLER_BUTTON_DPAD_UP, down = SDL_CONTROLLER_BUTTON_DPAD_DOWN;
+            const int left = SDL_CONTROLLER_BUTTON_DPAD_LEFT, right = SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
             if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY && nd != s_stick_dir) {
-                if (s_stick_dir) s_launcher.handle_button(s_stick_dir < 0 ? 11 : 12, false);
+                if (s_stick_dir) s_launcher.handle_button(s_stick_dir < 0 ? up : down, false);
                 s_stick_dir = nd;
-                if (nd) s_launcher.handle_button(nd < 0 ? 11 : 12, true);   /* up / down */
+                if (nd) s_launcher.handle_button(nd < 0 ? up : down, true);
             }
             if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX && nd != s_stick_lx) {
-                if (s_stick_lx) s_launcher.handle_button(s_stick_lx < 0 ? 13 : 14, false);
+                if (s_stick_lx) s_launcher.handle_button(s_stick_lx < 0 ? left : right, false);
                 s_stick_lx = nd;
-                if (nd) s_launcher.handle_button(nd < 0 ? 13 : 14, true);   /* left / right */
+                if (nd) s_launcher.handle_button(nd < 0 ? left : right, true);
             }
             if (ev.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTX ||
                 ev.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY)
@@ -417,8 +453,8 @@ static bool handle_event(const SDL_Event &ev) {
                    : (ev.caxis.value >  STICK_DEAD) ?  1 : 0;
             if (nd != s_stick_dir_x) {
                 s_stick_dir_x = nd;
-                if      (nd == -1) overlay_button(13, true);  /* dpad left  */
-                else if (nd ==  1) overlay_button(14, true);  /* dpad right */
+                if      (nd == -1) overlay_button(SDL_CONTROLLER_BUTTON_DPAD_LEFT, true);
+                else if (nd ==  1) overlay_button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
             }
         }
         return true;
@@ -493,12 +529,11 @@ static bool handle_event(const SDL_Event &ev) {
             if (overlay_get_state() != OVERLAY_HIDDEN) {
                 action = overlay_button(btn, true);
             } else {
-                /* RIGHTSTICK (R3) = 8, LEFTSTICK (L3) = 7 */
-                if (btn == 8 && s_current.is_sequential
+                if (btn == SDL_CONTROLLER_BUTTON_RIGHTSTICK && s_current.is_sequential
                         && s_current.has_next_week && overlay_week_done()) {
                     overlay_open(OVERLAY_WEEK_NEXT);
                 }
-                if (btn == 7) {
+                if (btn == SDL_CONTROLLER_BUTTON_LEFTSTICK) {
                     sfx_play_open_menu();
                     overlay_open(OVERLAY_RETURN_LAUNCHER);
                 }
@@ -582,10 +617,32 @@ static void tick_playing(void) {
 }
 
 /* ── Entry point ─────────────────────────────────────────────────────── */
+/* PC: everything (db.json, assets, saves) is relative to the working
+   directory. When started from elsewhere (a desktop shortcut, a file
+   manager, a terminal in another folder), move to the executable's folder
+   if that's where db.json lives. */
+static void find_data_dir(void) {
+#ifndef __SWITCH__
+    if (fs_exists(DB_PATH)) return;
+    char *base = SDL_GetBasePath();
+    if (!base) return;
+    std::string dir = base;
+    SDL_free(base);
+    if (!fs_exists(dir + DB_PATH)) return;
+#  ifdef _WIN32
+    int rc = _chdir(dir.c_str());
+#  else
+    int rc = chdir(dir.c_str());
+#  endif
+    if (rc == 0) fprintf(stderr, "data: using %s\n", dir.c_str());
+#endif
+}
+
 int main(int argc, char *argv[]) {
     (void)argc; (void)argv;
 
     setvbuf(stderr, NULL, _IONBF, 0);  /* unbuffered: don't lose logs on crash */
+    find_data_dir();
 
 #ifdef __SWITCH__
     if (R_FAILED(romfsInit()))
@@ -670,11 +727,7 @@ int main(int argc, char *argv[]) {
         ? ASSET("imgs/BOOTLOGO.png") : s_branding.splash_path;
 
     /* Ensure saves directory exists (best-effort) */
-#ifdef _WIN32
-    CreateDirectoryA(SAVES_DIR, nullptr);
-#else
-    { char cmd[256]; snprintf(cmd,sizeof(cmd),"mkdir -p %s",SAVES_DIR); system(cmd); }
-#endif
+    if (!fs_mkdirs(SAVES_DIR)) fprintf(stderr, "saves: couldn't create %s\n", SAVES_DIR);
 
     /* Load game database */
     auto groups = db_load(DB_PATH, ROMS_DIR, SAVES_DIR, CORES_DIR);
@@ -751,6 +804,9 @@ int main(int argc, char *argv[]) {
         if (s_state != STATE_PLAYING) menu_frame_wait();
 
         if (s_quit_requested) running = false;  /* external app launched */
+#if !defined(__SWITCH__) && !defined(_WIN32)
+        reap_children();
+#endif
     }
 
     s_launcher.on_quit();

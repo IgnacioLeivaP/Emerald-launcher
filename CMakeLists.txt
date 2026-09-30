@@ -18,6 +18,7 @@ set(EL_SOURCES
     src/renderer.c
     src/scene3d.c
     src/boxshape.c
+    src/fsutil.cpp
     src/ui.c
     src/gl.c
     src/sfx.c

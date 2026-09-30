@@ -1,5 +1,6 @@
 #include "overlay.h"
 #include "ui.h"
+#include <SDL2/SDL.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -12,7 +13,7 @@ static int          s_total_entries   = 0;
 static bool         s_has_next_week   = false;
 
 /* Corner HUD label, e.g. "W1>W2" */
-static char         s_corner_label[16] = "";
+static char         s_corner_label[32] = "";
 
 /* ── Public API ──────────────────────────────────────────────────────── */
 void overlay_init(void) {
@@ -89,24 +90,22 @@ static OverlayAction handle_input(bool left_right_changed, bool confirm, bool ca
 
 OverlayAction overlay_key(int k, bool down) {
     if (!down || s_state == OVERLAY_HIDDEN) return OVERLAY_ACTION_NONE;
-    /* SDLK: LEFT=1073741904, RIGHT=1073741903, RETURN=13, ESCAPE=27 */
-    bool lr      = (k == 1073741904 || k == 1073741903);
-    bool confirm = (k == 13);
-    bool cancel  = (k == 27);
+    bool lr      = (k == SDLK_LEFT || k == SDLK_RIGHT);
+    bool confirm = (k == SDLK_RETURN || k == SDLK_KP_ENTER);
+    bool cancel  = (k == SDLK_ESCAPE || k == SDLK_BACKSPACE);
     return handle_input(lr, confirm, cancel);
 }
 
 OverlayAction overlay_button(int btn, bool down) {
     if (!down || s_state == OVERLAY_HIDDEN) return OVERLAY_ACTION_NONE;
-    /* SDL_CONTROLLER_BUTTON: A=0, B=1, DPAD_LEFT=13, DPAD_RIGHT=14.
-       Switch labels A/B opposite to SDL's Xbox layout, so swap confirm/cancel. */
-    bool lr      = (btn == 13 || btn == 14);
+    /* Switch labels A/B opposite to SDL's Xbox layout, so swap confirm/cancel. */
+    bool lr      = (btn == SDL_CONTROLLER_BUTTON_DPAD_LEFT || btn == SDL_CONTROLLER_BUTTON_DPAD_RIGHT);
 #ifdef __SWITCH__
-    bool confirm = (btn == 1);
-    bool cancel  = (btn == 0);
+    bool confirm = (btn == SDL_CONTROLLER_BUTTON_B);
+    bool cancel  = (btn == SDL_CONTROLLER_BUTTON_A);
 #else
-    bool confirm = (btn == 0);
-    bool cancel  = (btn == 1);
+    bool confirm = (btn == SDL_CONTROLLER_BUTTON_A);
+    bool cancel  = (btn == SDL_CONTROLLER_BUTTON_B);
 #endif
     return handle_input(lr, confirm, cancel);
 }

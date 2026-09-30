@@ -1,16 +1,25 @@
 #include "prefs.h"
+#include "fsutil.h"
+#include "paths.h"
 #include <nlohmann/json.hpp>
+#include <cstdio>
 #include <fstream>
 #include <unordered_map>
 
-static const char *PREFS_PATH = "prefs.json";
+/* Next to db.json (sdmc:/emerald/ on Switch). Older builds wrote it to the
+   working directory, which on the Switch is wherever the NRO was started
+   from: that file is picked up once and moved here. */
+static const char *PREFS_PATH = DATA("prefs.json");
+static const char *OLD_PREFS_PATH = "prefs.json";
 static std::unordered_map<std::string, int> s_shaders;
 static std::unordered_map<std::string, int> s_last_entry;
 static bool        s_view_3d = true;
 static std::string s_last_group;
 
 void prefs_load(void) {
-    std::ifstream f(PREFS_PATH);
+    const bool migrate = !fs_exists(PREFS_PATH) && std::string(PREFS_PATH) != OLD_PREFS_PATH &&
+                         fs_exists(OLD_PREFS_PATH);
+    std::ifstream f(migrate ? OLD_PREFS_PATH : PREFS_PATH);
     if (!f) return;
     try {
         auto j = nlohmann::json::parse(f);
@@ -27,6 +36,11 @@ void prefs_load(void) {
                 if (v.is_number_integer()) s_last_entry[k] = v.get<int>();
         }
     } catch (...) {}
+    if (migrate) {
+        f.close();
+        prefs_save();
+        remove(OLD_PREFS_PATH);
+    }
 }
 
 void prefs_save(void) {
@@ -39,8 +53,8 @@ void prefs_save(void) {
     j["last_entry"] = nlohmann::json::object();
     for (auto &[k, v] : s_last_entry)
         j["last_entry"][k] = v;
-    std::ofstream f(PREFS_PATH);
-    if (f) f << j.dump(2) << "\n";
+    if (!fs_write_atomic(PREFS_PATH, j.dump(2) + "\n"))
+        fprintf(stderr, "prefs: couldn't write %s\n", PREFS_PATH);
 }
 
 int prefs_get_shader(const std::string &key) {

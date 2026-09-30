@@ -1,10 +1,13 @@
 #include "db.h"
+#include "fsutil.h"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <map>
 #include <set>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <vector>
 
 #ifdef _WIN32
 #  include <windows.h>
@@ -23,6 +26,24 @@ using json = nlohmann::ordered_json;
 static const char *EL_PLATFORM = "switch";
 #else
 static const char *EL_PLATFORM = "pc";
+#endif
+
+#if !defined(__SWITCH__) && !defined(_WIN32)
+/* RetroArch core on Linux: the configured folder, else the usual places
+   (user-installed cores first, then distro packages). */
+static std::string linux_core_path(const std::string &dir, const std::string &core) {
+    const std::string file = core + ".so";
+    if (!dir.empty()) return dir + "/" + file;
+    std::vector<std::string> dirs;
+    if (const char *home = getenv("HOME")) dirs.push_back(std::string(home) + "/.config/retroarch/cores");
+    dirs.push_back("/usr/lib/x86_64-linux-gnu/libretro");
+    dirs.push_back("/usr/lib/aarch64-linux-gnu/libretro");
+    dirs.push_back("/usr/lib/libretro");
+    dirs.push_back("/usr/local/lib/libretro");
+    for (const auto &d : dirs)
+        if (fs_exists(d + "/" + file)) return d + "/" + file;
+    return dirs.front() + "/" + file;
+}
 #endif
 
 static bool platform_allowed(const json &j) {
@@ -59,8 +80,8 @@ static void progress_load(void) {
 
 static void progress_save(void) {
     json j = s_progress;
-    std::ofstream f(s_progress_path);
-    if (f.is_open()) f << j.dump(2);
+    if (!fs_write_atomic(s_progress_path, j.dump(2)))
+        fprintf(stderr, "db: couldn't write %s\n", s_progress_path.c_str());
 }
 
 int db_progress_get(const std::string &key) {
@@ -160,12 +181,14 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
     }
 
     /* RetroArch chainload config (for heavy systems like N64) */
-    std::string ra_exe_win, ra_cores_win, ra_cores_switch;
+    std::string ra_exe_win, ra_cores_win, ra_cores_switch, ra_exe_linux, ra_cores_linux;
     if (jdb.contains("retroarch")) {
         const auto &ra = jdb["retroarch"];
         ra_exe_win      = ra.value("exe_win","");
         ra_cores_win    = ra.value("cores_win","");
         ra_cores_switch = ra.value("cores_switch","");
+        ra_exe_linux    = ra.value("exe_linux","");
+        ra_cores_linux  = ra.value("cores_linux","");
     }
 
     /* Build extension → core mapping */
@@ -266,8 +289,10 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                         e.external  = true;
 #ifdef __SWITCH__
                         e.exec_path = ext.value("nro","");
-#else
+#elif defined(_WIN32)
                         e.exec_path = ext.value("exe","");
+#else
+                        e.exec_path = ext.value("linux", ext.value("exe",""));
 #endif
                         e.exec_argv = ext.value("argv","");
                         g.entries.push_back(e);
@@ -285,10 +310,14 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                         e.exec_path = ra_cores_switch + "/" + ra_core + "_libnx.nro";
                         /* RetroArch expects argv[0]=program, argv[1]=content. */
                         e.exec_argv = "\"" + e.exec_path + "\" \"" + rom + "\"";
-#else
+#elif defined(_WIN32)
                         e.exec_path = ra_exe_win;
                         e.exec_argv = "-L \"" + ra_cores_win + "/" + ra_core +
                                       ".dll\" \"" + rom + "\"";
+#else
+                        e.exec_path = ra_exe_linux.empty() ? "retroarch" : ra_exe_linux;
+                        e.exec_argv = "-L \"" + linux_core_path(ra_cores_linux, ra_core) +
+                                      "\" \"" + rom + "\"";
 #endif
                         g.entries.push_back(e);
                         continue;

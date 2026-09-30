@@ -16,3 +16,16 @@
 #endif
 
 #define ASSET(p) (ASSET_PREFIX p)
+
+/* User data root: db.json and everything next to it (prefs, progress, stats,
+   roms, saves, cores, screenshots, save states). DATA("db.json") becomes
+   "sdmc:/emerald/db.json" on Switch; on PC it is relative to the working
+   directory, which main() moves to the executable's folder if db.json isn't
+   in the current one. */
+#ifdef __SWITCH__
+#  define DATA_PREFIX "sdmc:/emerald/"
+#else
+#  define DATA_PREFIX ""
+#endif
+
+#define DATA(p) (DATA_PREFIX p)

@@ -363,6 +363,10 @@ static void     *s_font_data    = NULL;
 static long      s_font_data_sz = 0;
 static int       s_ttf_inited   = 0;
 
+/* Rendered-text cache (see "Text cache" below). */
+static void tc_trim(unsigned age);
+static void tc_tick(void);
+
 /* ─────────────────────────────────────────────────────────────────────── */
 
 static GLuint compile_shader(GLenum type, const char *src) {
@@ -463,10 +467,16 @@ bool ui_load_font(const char *ttf_path) {
     fseek(f, 0, SEEK_END);
     s_font_data_sz = ftell(f);
     fseek(f, 0, SEEK_SET);
-    s_font_data = malloc((size_t)s_font_data_sz);
+    s_font_data = s_font_data_sz > 0 ? malloc((size_t)s_font_data_sz) : NULL;
     if (!s_font_data) { fclose(f); return false; }
-    fread(s_font_data, 1, (size_t)s_font_data_sz, f);
+    size_t got = fread(s_font_data, 1, (size_t)s_font_data_sz, f);
     fclose(f);
+    if (got != (size_t)s_font_data_sz) {
+        fprintf(stderr, "ui: short read on font '%s'\n", ttf_path);
+        free(s_font_data); s_font_data = NULL;
+        return false;
+    }
+    tc_trim(0);
 
     for (int i = 0; i < NUM_FONT_SIZES; i++) {
         /* Each call creates a new RWops wrapper around the same buffer.
@@ -490,6 +500,7 @@ void ui_shutdown(void) {
         s_pxfonts[i].font = NULL;
     }
     s_pxfont_n = 0;
+    tc_trim(0);
     if (s_ttf_inited) { TTF_Quit(); s_ttf_inited = 0; }
     free(s_font_data); s_font_data = NULL;
 
@@ -505,6 +516,7 @@ void ui_shutdown(void) {
 
 void ui_begin(void) {
     memset(s_canvas, 0, (size_t)(s_sw * s_sh * 4));
+    tc_tick();
 }
 
 void ui_draw_bg(void) {
@@ -721,7 +733,7 @@ void ui_triangle(float x0f, float y0f, float x1f, float y1f, float x2f, float y2
 
 /* ── Text ─────────────────────────────────────────────────────────────── */
 /* Map scale factor to the closest pre-loaded font size. */
-static TTF_Font *pick_font(float scale) {
+static int pick_size(float scale) {
     int target = (int)(scale * 16.0f + 0.5f);
     if (target < 10) target = 10;
     int best = 0, bestdiff = abs(target - FONT_SIZES[0]);
@@ -729,7 +741,14 @@ static TTF_Font *pick_font(float scale) {
         int diff = abs(target - FONT_SIZES[i]);
         if (diff < bestdiff) { bestdiff = diff; best = i; }
     }
-    return s_fonts[best];
+    return FONT_SIZES[best];
+}
+
+static TTF_Font *pick_font(float scale) {
+    int px = pick_size(scale);
+    for (int i = 0; i < NUM_FONT_SIZES; i++)
+        if (FONT_SIZES[i] == px) return s_fonts[i];
+    return s_fonts[0];
 }
 
 /* Exact pixel size (opened on demand, cached). NULL → bitmap fallback. */
@@ -750,8 +769,331 @@ static TTF_Font *font_px(int px) {
     return f ? f : pick_font((float)px / 16.0f);
 }
 
+/* ── UTF-8 and synthesized accents ──────────────────────────────────────
+   The bundled pixel font only has ASCII. Letters it can't draw (á é í ó ú
+   ñ ü ¿ ¡ …) are rendered as their base letter with the mark drawn on top
+   in the same pixel style, so Spanish text works with any font; a font that
+   has the real glyphs uses them. */
+static unsigned utf8_next(const char **ps) {
+    const unsigned char *s = (const unsigned char *)*ps;
+    unsigned c = s[0];
+    int n;
+    if (c < 0x80)                { *ps += 1; return c; }
+    else if ((c & 0xE0) == 0xC0) { n = 1; c &= 0x1F; }
+    else if ((c & 0xF0) == 0xE0) { n = 2; c &= 0x0F; }
+    else if ((c & 0xF8) == 0xF0) { n = 3; c &= 0x07; }
+    else                         { *ps += 1; return 0xFFFD; }
+    for (int i = 1; i <= n; i++) {
+        if ((s[i] & 0xC0) != 0x80) { *ps += i; return 0xFFFD; }
+        c = (c << 6) | (s[i] & 0x3Fu);
+    }
+    *ps += n + 1;
+    return c;
+}
+
+static bool is_ascii(const char *s) {
+    for (; *s; s++) if ((unsigned char)*s >= 0x80) return false;
+    return true;
+}
+
+enum { MK_NONE, MK_ACUTE, MK_GRAVE, MK_CIRC, MK_DIAER, MK_TILDE, MK_RING, MK_CEDIL, MK_INVERT };
+typedef struct { unsigned cp; const char *base; unsigned char mark; } Accent;
+static const Accent ACCENTS[] = {
+    {0xE1,"a",MK_ACUTE},{0xE9,"e",MK_ACUTE},{0xED,"i",MK_ACUTE},{0xF3,"o",MK_ACUTE},{0xFA,"u",MK_ACUTE},
+    {0xC1,"A",MK_ACUTE},{0xC9,"E",MK_ACUTE},{0xCD,"I",MK_ACUTE},{0xD3,"O",MK_ACUTE},{0xDA,"U",MK_ACUTE},
+    {0xFD,"y",MK_ACUTE},{0xDD,"Y",MK_ACUTE},
+    {0xE0,"a",MK_GRAVE},{0xE8,"e",MK_GRAVE},{0xEC,"i",MK_GRAVE},{0xF2,"o",MK_GRAVE},{0xF9,"u",MK_GRAVE},
+    {0xC0,"A",MK_GRAVE},{0xC8,"E",MK_GRAVE},{0xCC,"I",MK_GRAVE},{0xD2,"O",MK_GRAVE},{0xD9,"U",MK_GRAVE},
+    {0xE2,"a",MK_CIRC},{0xEA,"e",MK_CIRC},{0xEE,"i",MK_CIRC},{0xF4,"o",MK_CIRC},{0xFB,"u",MK_CIRC},
+    {0xC2,"A",MK_CIRC},{0xCA,"E",MK_CIRC},{0xCE,"I",MK_CIRC},{0xD4,"O",MK_CIRC},{0xDB,"U",MK_CIRC},
+    {0xE4,"a",MK_DIAER},{0xEB,"e",MK_DIAER},{0xEF,"i",MK_DIAER},{0xF6,"o",MK_DIAER},{0xFC,"u",MK_DIAER},
+    {0xC4,"A",MK_DIAER},{0xCB,"E",MK_DIAER},{0xCF,"I",MK_DIAER},{0xD6,"O",MK_DIAER},{0xDC,"U",MK_DIAER},
+    {0xFF,"y",MK_DIAER},
+    {0xF1,"n",MK_TILDE},{0xD1,"N",MK_TILDE},{0xE3,"a",MK_TILDE},{0xF5,"o",MK_TILDE},
+    {0xC3,"A",MK_TILDE},{0xD5,"O",MK_TILDE},
+    {0xE5,"a",MK_RING},{0xC5,"A",MK_RING},
+    {0xE7,"c",MK_CEDIL},{0xC7,"C",MK_CEDIL},
+    {0xBF,"?",MK_INVERT},{0xA1,"!",MK_INVERT},
+    /* Typographic punctuation → plain ASCII. */
+    {0x2018,"'",MK_NONE},{0x2019,"'",MK_NONE},{0x201C,"\"",MK_NONE},{0x201D,"\"",MK_NONE},
+    {0x2013,"-",MK_NONE},{0x2014,"-",MK_NONE},{0x2026,"...",MK_NONE},{0xAB,"<<",MK_NONE},
+    {0xBB,">>",MK_NONE},{0xBA,"o",MK_NONE},{0xAA,"a",MK_NONE},{0xB7,".",MK_NONE},
+    {0xD7,"x",MK_NONE},{0xA0," ",MK_NONE},
+};
+
+static const Accent *accent_of(unsigned cp) {
+    for (size_t i = 0; i < sizeof(ACCENTS) / sizeof(ACCENTS[0]); i++)
+        if (ACCENTS[i].cp == cp) return &ACCENTS[i];
+    return NULL;
+}
+
+#define MAX_MARKS 48
+typedef struct {
+    char plain[1024];                       /* what SDL_ttf actually renders */
+    struct { int pos; unsigned char mark; } marks[MAX_MARKS];
+    int  nmarks;
+} Prepared;
+
+/* Replace characters the font can't draw by their base letters (bitmap
+   font: font == NULL) and note where the marks go. */
+static void prepare_text(TTF_Font *font, const char *str, Prepared *out) {
+    size_t n = 0;
+    out->nmarks = 0;
+    const char *p = str;
+    while (*p && n < sizeof(out->plain) - 8) {
+        const char *start = p;
+        unsigned cp = utf8_next(&p);
+        const Accent *ac = cp >= 0x80 ? accent_of(cp) : NULL;
+        bool native = cp < 0x80 || (font && cp <= 0xFFFF && TTF_GlyphIsProvided(font, (Uint16)cp));
+        if (native || !ac) {
+            if (!native && !font) { out->plain[n++] = '?'; continue; }
+            size_t len = (size_t)(p - start);
+            memcpy(out->plain + n, start, len);
+            n += len;
+            continue;
+        }
+        if (ac->mark != MK_NONE && out->nmarks < MAX_MARKS) {
+            out->marks[out->nmarks].pos = (int)n;
+            out->marks[out->nmarks].mark = ac->mark;
+            out->nmarks++;
+        }
+        size_t bl = strlen(ac->base);
+        memcpy(out->plain + n, ac->base, bl);
+        n += bl;
+    }
+    out->plain[n] = '\0';
+}
+
+/* Pixel-art marks on a grid of u x u cells: {cells}, width, height. */
+typedef struct { unsigned char cells[8][2]; int n, w, h; } MarkShape;
+static const MarkShape MARK_SHAPES[] = {
+    /* NONE   */ {{{0,0}}, 0, 0, 0},
+    /* ACUTE  */ {{{0,1},{1,0}}, 2, 2, 2},
+    /* GRAVE  */ {{{0,0},{1,1}}, 2, 2, 2},
+    /* CIRC   */ {{{0,1},{1,0},{2,1}}, 3, 3, 2},
+    /* DIAER  */ {{{0,0},{2,0}}, 2, 3, 1},
+    /* TILDE  */ {{{0,1},{1,0},{2,1},{3,0}}, 4, 4, 2},
+    /* RING   */ {{{1,0},{0,1},{2,1},{1,2}}, 4, 3, 3},
+    /* CEDIL  */ {{{1,0},{2,1},{1,2},{0,2}}, 4, 3, 3},
+};
+
+static void mark_fill(unsigned char *m, int mw, int mh, int x, int y, int w, int h) {
+    for (int yy = y; yy < y + h; yy++) {
+        if (yy < 0 || yy >= mh) continue;
+        for (int xx = x; xx < x + w; xx++)
+            if (xx >= 0 && xx < mw) m[(size_t)yy * (size_t)mw + (size_t)xx] = 255;
+    }
+}
+
+/* Coverage mask of a string: SDL_ttf rendering plus synthesized marks.
+   *oy is the row offset of the mask relative to the text's top (accents on
+   capitals may rise above the line box). Returns NULL for empty output. */
+static unsigned char *render_mask(TTF_Font *font, int px, const char *str, int *mw, int *mh, int *oy) {
+    static Prepared P;
+    const char *plain = str;
+    int nmarks = 0;
+    if (!is_ascii(str)) {
+        prepare_text(font, str, &P);
+        plain = P.plain;
+        nmarks = P.nmarks;
+    }
+    *mw = *mh = *oy = 0;
+    if (!plain[0]) return NULL;
+    SDL_Color white = { 255, 255, 255, 255 };
+    SDL_Surface *surf = TTF_RenderUTF8_Blended(font, plain, white);
+    if (!surf) return NULL;
+    SDL_Surface *src = surf;
+    if (surf->format->format != SDL_PIXELFORMAT_ARGB8888) {
+        src = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_ARGB8888, 0);
+        SDL_FreeSurface(surf);
+        if (!src) return NULL;
+    }
+
+    /* Where each mark goes, and how much room it needs outside the box. */
+    const int u = px >= 12 ? (px + 6) / 12 : 1;
+    const int ascent = TTF_FontAscent(font);
+    int top_extra = 0, bottom_extra = 0;
+    struct { int x, y, mark, gx0, gy0, gx1, gy1, dotless; } place[MAX_MARKS];
+    for (int i = 0; i < nmarks; i++) {
+        const char base = P.plain[P.marks[i].pos];
+        int x0 = 0, hh = 0;
+        P.plain[P.marks[i].pos] = '\0';                 /* measure the text before it */
+        if (P.marks[i].pos > 0) TTF_SizeUTF8(font, P.plain, &x0, &hh);
+        P.plain[P.marks[i].pos] = base;
+        int minx = 0, maxx = 0, miny = 0, maxy = 0, adv = 0;
+        TTF_GlyphMetrics(font, (Uint16)(unsigned char)base, &minx, &maxx, &miny, &maxy, &adv);
+        int mk = P.marks[i].mark;
+        place[i].mark = mk;
+        place[i].gx0 = x0 + minx; place[i].gx1 = x0 + maxx;
+        place[i].gy0 = ascent - maxy; place[i].gy1 = ascent - miny;
+        place[i].dotless = 0;
+        if (mk == MK_INVERT) continue;
+        if (base == 'i') {
+            /* í, ï…: the mark replaces the dot, which goes from the x-height up. */
+            int xminx, xmaxx, xminy, xmaxy, xadv;
+            if (TTF_GlyphMetrics(font, 'x', &xminx, &xmaxx, &xminy, &xmaxy, &xadv) == 0 &&
+                ascent - xmaxy > place[i].gy0) {
+                place[i].dotless = ascent - xmaxy;
+                place[i].gy0 = ascent - xmaxy;
+            }
+        }
+        const MarkShape *ms = &MARK_SHAPES[mk];
+        int cx = x0 + (minx + maxx) / 2;
+        place[i].x = cx - (ms->w * u) / 2;
+        if (mk == MK_CEDIL) {
+            place[i].y = ascent;                       /* hangs under the baseline */
+            int need = place[i].y + ms->h * u - src->h;
+            if (need > bottom_extra) bottom_extra = need;
+        } else {
+            place[i].y = place[i].gy0 - u - ms->h * u; /* one cell above the letter */
+            if (-place[i].y > top_extra) top_extra = -place[i].y;
+        }
+    }
+
+    const int w = src->w, h = src->h + top_extra + bottom_extra;
+    unsigned char *m = (unsigned char *)calloc((size_t)w * (size_t)h, 1);
+    if (!m) { SDL_FreeSurface(src); return NULL; }
+    SDL_LockSurface(src);
+    for (int row = 0; row < src->h; row++) {
+        const Uint32 *line = (const Uint32 *)((const Uint8 *)src->pixels + row * src->pitch);
+        unsigned char *dst = m + (size_t)(row + top_extra) * (size_t)w;
+        for (int col = 0; col < w; col++) dst[col] = (unsigned char)(line[col] >> 24);
+    }
+    SDL_UnlockSurface(src);
+    SDL_FreeSurface(src);
+
+    for (int i = 0; i < nmarks; i++) {
+        if (place[i].mark == MK_INVERT) {
+            /* ¿ ¡: the glyph turned upside down within its own box. */
+            int x0 = place[i].gx0 < 0 ? 0 : place[i].gx0, x1 = place[i].gx1 > w ? w : place[i].gx1;
+            int y0 = place[i].gy0 + top_extra, y1 = place[i].gy1 + top_extra;
+            if (y0 < 0) y0 = 0;
+            if (y1 > h) y1 = h;
+            const int bw = x1 - x0, bh = y1 - y0;
+            for (int k = 0; bw > 0 && k < bw * bh / 2; k++) {
+                unsigned char *a = &m[(size_t)(y0 + k / bw) * (size_t)w + (size_t)(x0 + k % bw)];
+                unsigned char *b = &m[(size_t)(y1 - 1 - k / bw) * (size_t)w + (size_t)(x1 - 1 - k % bw)];
+                unsigned char t = *a; *a = *b; *b = t;
+            }
+            continue;
+        }
+        if (place[i].dotless > 0)       /* erase the dot of the i */
+            for (int y = 0; y < place[i].dotless - 1 + top_extra && y < h; y++)
+                for (int x = place[i].gx0; x < place[i].gx1; x++)
+                    if (x >= 0 && x < w) m[(size_t)y * (size_t)w + (size_t)x] = 0;
+        const MarkShape *ms = &MARK_SHAPES[place[i].mark];
+        for (int k = 0; k < ms->n; k++)
+            mark_fill(m, w, h, place[i].x + ms->cells[k][0] * u,
+                      place[i].y + top_extra + ms->cells[k][1] * u, u, u);
+    }
+    *mw = w; *mh = h; *oy = -top_extra;
+    return m;
+}
+
+/* ── Text cache ──────────────────────────────────────────────────────────
+   SDL_ttf rasterizes a whole string into a new surface on every call, and
+   the launcher draws the same few dozen strings each frame (plus many width
+   measurements while word-wrapping). Coverage masks and widths are cached
+   per (pixel size, string); once the cache outgrows its budget, entries
+   that haven't been used for a while are dropped (checked in ui_begin). */
+typedef struct TextEntry {
+    struct TextEntry *next;
+    unsigned       hash;
+    int            px;
+    int            width;        /* advance width, -1 = not measured yet  */
+    int            mw, mh, oy;   /* coverage mask size and row offset     */
+    bool           rendered;
+    unsigned char *mask;
+    unsigned       last_used;
+    char           str[];
+} TextEntry;
+
+#define TC_BUCKETS   1024
+#define TC_BUDGET    ((size_t)6 << 20)   /* bytes of masks */
+#define TC_MAX_ITEMS 4096
+static TextEntry *s_tc[TC_BUCKETS];
+static size_t     s_tc_bytes = 0;
+static int        s_tc_items = 0;
+static unsigned   s_tc_frame = 1;
+
+static unsigned tc_hash(int px, const char *s) {
+    unsigned h = (2166136261u ^ (unsigned)px) * 16777619u;
+    for (; *s; s++) h = (h ^ (unsigned char)*s) * 16777619u;
+    return h;
+}
+
+static TextEntry *tc_find(int px, const char *s, bool create) {
+    const unsigned h = tc_hash(px, s);
+    TextEntry **bucket = &s_tc[h & (TC_BUCKETS - 1)];
+    for (TextEntry *e = *bucket; e; e = e->next)
+        if (e->hash == h && e->px == px && strcmp(e->str, s) == 0) {
+            e->last_used = s_tc_frame;
+            return e;
+        }
+    if (!create) return NULL;
+    size_t n = strlen(s);
+    TextEntry *e = (TextEntry *)malloc(sizeof(TextEntry) + n + 1);
+    if (!e) return NULL;
+    memcpy(e->str, s, n + 1);
+    e->hash = h; e->px = px; e->width = -1;
+    e->mw = e->mh = e->oy = 0; e->rendered = false; e->mask = NULL;
+    e->last_used = s_tc_frame;
+    e->next = *bucket;
+    *bucket = e;
+    s_tc_items++;
+    return e;
+}
+
+/* Drop entries not used during the last `age` frames (0 = everything). */
+static void tc_trim(unsigned age) {
+    for (int i = 0; i < TC_BUCKETS; i++) {
+        TextEntry **pp = &s_tc[i];
+        while (*pp) {
+            TextEntry *e = *pp;
+            if (age == 0 || e->last_used + age < s_tc_frame) {
+                *pp = e->next;
+                s_tc_bytes -= (size_t)e->mw * (size_t)e->mh;
+                free(e->mask);
+                free(e);
+                s_tc_items--;
+            } else {
+                pp = &e->next;
+            }
+        }
+    }
+}
+
+static void tc_tick(void) {
+    s_tc_frame++;
+    if (s_tc_bytes > TC_BUDGET || s_tc_items > TC_MAX_ITEMS) {
+        tc_trim(120);
+        if (s_tc_bytes > TC_BUDGET || s_tc_items > TC_MAX_ITEMS) tc_trim(3);
+    }
+}
+
+static void blit_mask(const unsigned char *m, int mw, int mh, int ox, int oy, PmColor c) {
+    int c0 = s_clip_x0 - ox, c1 = s_clip_x1 - ox;
+    if (c0 < 0) c0 = 0;
+    if (c1 > mw) c1 = mw;
+    if (c0 >= c1) return;
+    for (int row = 0; row < mh; row++) {
+        int py = oy + row;
+        if (py < s_clip_y0 || py >= s_clip_y1) continue;
+        const unsigned char *src = m + (size_t)row * (size_t)mw;
+        unsigned char *p = s_px + ((size_t)py * (size_t)s_pw + (size_t)(ox + c0)) * 4;
+        for (int col = c0; col < c1; col++, p += 4) {
+            unsigned cov = src[col];
+            if (!cov) continue;
+            if (cov == 255u) blend_at(p, c.r, c.g, c.b, c.a);
+            else blend_at(p, mul255(c.r, cov), mul255(c.g, cov), mul255(c.b, cov), mul255(c.a, cov));
+        }
+    }
+}
+
 /* 8×8 bitmap fallback when no TTF font could be loaded. */
 static void bitmap_text(float x, float y, float scale, const char *str, PmColor c) {
+    static Prepared P;
+    if (!is_ascii(str)) { prepare_text(NULL, str, &P); str = P.plain; }
     int sc = (int)(scale + .5f); if (sc < 1) sc = 1;
     float cx = x;
     while (*str) {
@@ -772,32 +1114,42 @@ static void bitmap_text(float x, float y, float scale, const char *str, PmColor 
     }
 }
 
-/* Render `str` with `font` and composite its coverage in color c. */
-static void ttf_text(TTF_Font *font, float x, float y, const char *str, PmColor c) {
-    SDL_Color white = { 255, 255, 255, 255 };
-    SDL_Surface *surf = TTF_RenderUTF8_Blended(font, str, white);
-    if (!surf) return;
-    SDL_Surface *src = surf;
-    if (surf->format->format != SDL_PIXELFORMAT_ARGB8888) {
-        src = SDL_ConvertSurfaceFormat(surf, SDL_PIXELFORMAT_ARGB8888, 0);
-        SDL_FreeSurface(surf);
-        if (!src) return;
-    }
-    SDL_LockSurface(src);
-    int ox = (int)floorf(x), oy = (int)floorf(y);
-    for (int row = 0; row < src->h; row++) {
-        int py = oy + row;
-        if (py < s_clip_y0 || py >= s_clip_y1) continue;
-        const Uint32 *line = (const Uint32 *)((const Uint8 *)src->pixels + row * src->pitch);
-        for (int col = 0; col < src->w; col++) {
-            unsigned cov = line[col] >> 24;
-            if (!cov) continue;
-            unsigned a = mul255(c.a, cov);
-            put_pixel(ox + col, py, mul255(c.r, cov), mul255(c.g, cov), mul255(c.b, cov), a);
+static int bitmap_width(int px, const char *str) {
+    int sc = (int)((float)px / 8.0f + 0.5f); if (sc < 1) sc = 1;
+    int n = 0;
+    for (const char *p = str; *p;) { utf8_next(&p); n++; }
+    return n * 8 * sc;
+}
+
+/* Draw `str` at pixel size px (font already resolved). */
+static void text_draw(TTF_Font *font, int px, float x, float y, const char *str, PmColor c) {
+    const int ox = (int)floorf(x), oy = (int)floorf(y);
+    const bool offscreen = s_px != s_canvas;
+    /* Box art and other offscreen compositions draw one-off strings: don't
+       let them flush the on-screen text out of the cache. */
+    TextEntry *e = tc_find(px, str, !offscreen);
+    if (e) {
+        if (!e->rendered) {
+            e->mask = render_mask(font, px, str, &e->mw, &e->mh, &e->oy);
+            e->rendered = true;
+            s_tc_bytes += (size_t)e->mw * (size_t)e->mh;
         }
+        if (e->mask) blit_mask(e->mask, e->mw, e->mh, ox, oy + e->oy, c);
+        return;
     }
-    SDL_UnlockSurface(src);
-    SDL_FreeSurface(src);
+    int mw, mh, moy;
+    unsigned char *m = render_mask(font, px, str, &mw, &mh, &moy);
+    if (m) blit_mask(m, mw, mh, ox, oy + moy, c);
+    free(m);
+}
+
+static int text_measure(TTF_Font *font, const char *str) {
+    static Prepared P;
+    const char *plain = str;
+    if (!is_ascii(str)) { prepare_text(font, str, &P); plain = P.plain; }
+    int w = 0, h = 0;
+    if (!plain[0] || TTF_SizeUTF8(font, plain, &w, &h) != 0) return 0;
+    return w;
 }
 
 void ui_text(float x, float y, float scale, const char *str,
@@ -806,7 +1158,7 @@ void ui_text(float x, float y, float scale, const char *str,
     PmColor c = pm_color(r, g, b, 1.0f);
     TTF_Font *font = pick_font(scale);
     if (!font) { bitmap_text(x, y, scale, str, c); return; }
-    ttf_text(font, x, y, str, c);
+    text_draw(font, pick_size(scale), x, y, str, c);
 }
 
 void ui_text_px(float x, float y, int px, const char *str,
@@ -815,19 +1167,17 @@ void ui_text_px(float x, float y, int px, const char *str,
     PmColor c = pm_color(r, g, b, a);
     TTF_Font *font = font_px(px);
     if (!font) { bitmap_text(x, y, (float)px / 8.0f, str, c); return; }
-    ttf_text(font, x, y, str, c);
+    text_draw(font, px, x, y, str, c);
 }
 
 int ui_text_width(int px, const char *str) {
     if (!str || !str[0]) return 0;
     TTF_Font *font = font_px(px);
-    if (!font) {
-        int sc = (int)((float)px / 8.0f + 0.5f); if (sc < 1) sc = 1;
-        return (int)strlen(str) * 8 * sc;
-    }
-    int w = 0, h = 0;
-    if (TTF_SizeUTF8(font, str, &w, &h) != 0) return 0;
-    return w;
+    if (!font) return bitmap_width(px, str);
+    TextEntry *e = tc_find(px, str, true);
+    if (!e) return text_measure(font, str);
+    if (e->width < 0) e->width = text_measure(font, str);
+    return e->width;
 }
 
 int ui_text_line_height(int px) {
@@ -894,7 +1244,7 @@ static int wrap_layout(float x, float y, float max_w, int px, float line_h, cons
             if (align == UI_ALIGN_CENTER) lx = x + (max_w - lw) * 0.5f;
             else if (align == UI_ALIGN_RIGHT) lx = x + max_w - lw;
             TTF_Font *font = font_px(px);
-            if (font) ttf_text(font, lx, y + (float)lines * line_h, line, c);
+            if (font) text_draw(font, px, lx, y + (float)lines * line_h, line, c);
             else      bitmap_text(lx, y + (float)lines * line_h, (float)px / 8.0f, line, c);
         }
         lines++;
