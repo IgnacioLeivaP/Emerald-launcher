@@ -226,4 +226,7 @@ Paquetes comunes:
   rename (`fs_write_atomic`); en el Switch el rename no reemplaza un archivo existente, así
   que se borra el destino antes.
 - **Cores estáticos**: `tools/build-switch-cores.sh` los clona en `cores-src/` y los
-  compila con `make platform=libnx`; CI usa la imagen `devkitpro/devkita64`.
+  compila con `make platform=libnx`, salvo mGBA: su repositorio de libretro ya no trae
+  `Makefile.libretro` y el core se compila con CMake (`-DLIBMGBA_ONLY=ON
+  -DBUILD_LIBRETRO=ON -DLIBRETRO_STATIC=ON -DLIBRETRO_SUFFIX=_libnx`, objetivo
+  `mgba_libretro`). CI usa la imagen `devkitpro/devkita64`.

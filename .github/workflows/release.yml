@@ -17,18 +17,28 @@ jobs:
     needs: build
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
-          path: artifacts
+          name: emerald-launcher-switch
+          path: artifacts/switch
+      - uses: actions/download-artifact@v7
+        with:
+          name: emerald-launcher-windows
+          path: artifacts/windows
       - name: Pack the downloads
         run: |
-          mkdir -p out
-          cp artifacts/emerald-launcher-switch/emerald_launcher.nro out/
-          (cd artifacts/emerald-launcher-windows && zip -qr ../../out/emerald-launcher-windows.zip .)
+          mkdir -p out stage
+          cp artifacts/switch/emerald_launcher.nro out/
+          # One top-level folder in the zip; artifacts drop empty folders, so
+          # the ones the user fills in are made again.
+          cp -r artifacts/windows stage/EmeraldLauncher
+          mkdir -p stage/EmeraldLauncher/{roms,saves,system,cores}
+          (cd stage && zip -qr ../out/emerald-launcher-windows.zip EmeraldLauncher)
           ls -la out
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: |
             out/emerald_launcher.nro
             out/emerald-launcher-windows.zip
+          fail_on_unmatched_files: true
           generate_release_notes: true

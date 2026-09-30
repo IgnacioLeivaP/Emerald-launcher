@@ -390,14 +390,15 @@ pacman -S switch-dev switch-sdl2 switch-sdl2_image switch-sdl2_ttf
 
 The in-launcher cores are linked statically, so each must be built for libnx as a
 `.a`. One script clones gambatte, snes9x, fceumm and mGBA into `cores-src/`, builds them
-with `make platform=libnx` and copies the `<core>_libretro_libnx.a` files into
-`switch/cores/`:
+for libnx (`make platform=libnx`; mGBA's libretro core builds with CMake) and copies the
+`<core>_libretro_libnx.a` files into `switch/cores/`:
 
 ```bash
 tools/build-switch-cores.sh            # or e.g. tools/build-switch-cores.sh snes9x
 ```
 
-(`DEVKITPRO` defaults to `/opt/devkitpro`; set `SNES9X_REF=<commit>` etc. to pin a core.)
+(`DEVKITPRO` defaults to `/opt/devkitpro`. Each core is pinned to the commit the launcher
+was last built with; set `SNES9X_REF=<commit>`, `MGBA_REF=master`, etc. to build another.)
 
 Cores currently wired into the build (`switch/cores/`):
 `gambatte_libretro_libnx.a`, `snes9x_libretro_libnx.a`,

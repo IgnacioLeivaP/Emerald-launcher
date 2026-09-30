@@ -12,7 +12,7 @@ jobs:
     name: Linux (OpenGL + GLES, unit tests)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Dependencies
         run: |
           sudo apt-get update
@@ -37,7 +37,7 @@ jobs:
     name: Screenshots (visual test)
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Dependencies
         run: |
           sudo apt-get update
@@ -50,7 +50,7 @@ jobs:
           cmake --build build
       - name: Capture the main screens
         run: tools/visual-test/run.sh build/emerald_launcher visual-test-out
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: screenshots
           path: visual-test-out/*.png
@@ -62,7 +62,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -78,7 +78,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure
       - name: Package (dist/)
         run: ./package.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: emerald-launcher-windows
           path: dist/
@@ -88,11 +88,11 @@ jobs:
     runs-on: ubuntu-24.04
     container: devkitpro/devkita64:latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: SDL2 portlibs
         run: dkp-pacman -Sy --needed --noconfirm switch-sdl2 switch-sdl2_image switch-sdl2_ttf
       - name: Cache the static cores
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             cores-src
@@ -106,7 +106,7 @@ jobs:
         run: |
           cmake -S . -B build-switch -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake -DCMAKE_BUILD_TYPE=Release
           cmake --build build-switch -j"$(nproc)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: emerald-launcher-switch
           path: build-switch/emerald_launcher.nro
