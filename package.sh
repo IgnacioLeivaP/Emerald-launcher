@@ -11,7 +11,7 @@ set -e
 cd "$(dirname "$0")"
 
 DIST=dist
-MINGW=/mingw64/bin
+MINGW=${MINGW:-/mingw64/bin}
 
 echo ">> Cleaning $DIST/"
 rm -rf "$DIST"
@@ -19,7 +19,8 @@ mkdir -p "$DIST"/roms "$DIST"/saves "$DIST"/system
 
 echo ">> Copying app + assets"
 cp build/emerald_launcher.exe "$DIST"/
-cp -r imgs sounds cores maker "$DIST"/
+for d in imgs sounds maker cores; do [ -d "$d" ] && cp -r "$d" "$DIST"/; done
+mkdir -p "$DIST"/cores   # the emulator DLLs go here (not part of the repository)
 cp alagard.ttf db.json        "$DIST"/
 [ -f branding.json ] && cp branding.json "$DIST"/
 [ -d branding ]      && cp -r branding "$DIST"/   # custom icon/splash/bg/font referenced by branding.json
@@ -55,11 +56,18 @@ Archivos:
 Controles del launcher (estante 3D):
   Izq./Der.  Recorrer juegos       Enter  Versiones / Jugar
   Espacio    Ver la caja (girarla) Esc    Volver
-  Tab        Ajustes: shader, borrar partidas, vista 3D o lista clásica
-  F11        Maximizar ventana     Ratón: clic, rueda y arrastrar
-  En juego:  Esc = volver al launcher
+  F          Marcar favorito       Tab    Ajustes (filtro, orden, idioma,
+  F11        Maximizar ventana             controles, música...)
+  F3         Info. de rendimiento  Ratón: clic, rueda y arrastrar
 
-  db.json admite "cover" (juego o versión): imagen propia para el frente de la caja.
+En juego:
+  Esc  Menú de pausa: continuar, guardar / cargar estado, captura,
+       filtro, controles, reiniciar, volver al launcher
+  F12  Captura de pantalla (queda en la carpeta "captures" junto al ROM)
+  Al volver al launcher el juego queda guardado para "Continuar".
+
+  db.json admite "cover" (juego o versión): imagen propia para el frente de la caja,
+  y textos en español: "description_es", "version_desc_es", "title_es".
 EOF
 
 echo ">> Done -> $DIST/  ($(du -sh "$DIST" 2>/dev/null | cut -f1))"

@@ -34,3 +34,5 @@ switch/cores/
 
 # Visual test output (tools/visual-test/run.sh)
 visual-test-out/
+stats.json
+input.json

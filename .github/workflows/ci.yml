@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:        # release.yml builds everything through this workflow
+
+jobs:
+  linux:
+    name: Linux (OpenGL + GLES, unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build \
+            libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev libgl-dev libgles-dev glslang-tools
+      - name: Build (desktop OpenGL 3.3)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Build (OpenGL ES 3.0, the Switch renderer)
+        run: |
+          cmake -S . -B build-gles -G Ninja -DCMAKE_BUILD_TYPE=Release -DEL_GLES=ON -DEL_TESTS=OFF
+          cmake --build build-gles
+      - name: Shaders compile as GLSL ES 3.00
+        run: python3 tools/check-shaders.py
+      - name: Every UI string has a Spanish translation
+        run: python3 tools/check-i18n.py
+
+  screenshots:
+    name: Screenshots (visual test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build \
+            libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev libgl-dev libgles-dev \
+            libgl1-mesa-dri xvfb xdotool imagemagick python3-pil
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DEL_TESTS=OFF
+          cmake --build build
+      - name: Capture the main screens
+        run: tools/visual-test/run.sh build/emerald_launcher visual-test-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: visual-test-out/*.png
+
+  windows:
+    name: Windows (MSYS2 MinGW64)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_image mingw-w64-x86_64-SDL2_ttf
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Unit tests
+        run: ctest --test-dir build --output-on-failure
+      - name: Package (dist/)
+        run: ./package.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emerald-launcher-windows
+          path: dist/
+
+  switch:
+    name: Nintendo Switch (NRO)
+    runs-on: ubuntu-24.04
+    container: devkitpro/devkita64:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: SDL2 portlibs
+        run: dkp-pacman -Sy --needed --noconfirm switch-sdl2 switch-sdl2_image switch-sdl2_ttf
+      - name: Cache the static cores
+        uses: actions/cache@v4
+        with:
+          path: |
+            cores-src
+            switch/cores
+          key: switch-cores-${{ hashFiles('tools/build-switch-cores.sh') }}
+      - name: Static libretro cores (gambatte, snes9x, fceumm, mGBA)
+        run: |
+          if [ ! -f switch/cores/mgba_libretro_libnx.a ]; then tools/build-switch-cores.sh; fi
+          ls -la switch/cores
+      - name: Build the NRO
+        run: |
+          cmake -S . -B build-switch -DCMAKE_TOOLCHAIN_FILE=$DEVKITPRO/cmake/Switch.cmake -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-switch -j"$(nproc)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emerald-launcher-switch
+          path: build-switch/emerald_launcher.nro
