@@ -5,6 +5,8 @@
 #ifdef _WIN32
 #  include <direct.h>
 #  include <windows.h>
+#else
+#  include <dirent.h>
 #endif
 
 bool fs_exists(const std::string &path) {
@@ -74,6 +76,10 @@ bool fs_write_atomic(const std::string &path, const void *data, size_t size) {
     ok = fflush(f) == 0 && ok;
     ok = fclose(f) == 0 && ok;
     if (!ok) { remove(tmp.c_str()); return false; }
+    return fs_replace(tmp, path);
+}
+
+bool fs_replace(const std::string &tmp, const std::string &path) {
 #ifdef _WIN32
     if (!MoveFileExA(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
         remove(tmp.c_str());
@@ -98,4 +104,28 @@ long long fs_mtime(const std::string &path) {
     struct stat st;
     if (path.empty() || stat(path.c_str(), &st) != 0) return 0;
     return (long long)st.st_mtime;
+}
+
+std::vector<std::string> fs_list(const std::string &dir) {
+    std::vector<std::string> out;
+#ifdef _WIN32
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((dir + "\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return out;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) out.push_back(fd.cFileName);
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+#else
+    DIR *d = opendir(dir.c_str());
+    if (!d) return out;
+    while (struct dirent *e = readdir(d)) {
+        if (e->d_name[0] == '.') continue;
+        struct stat st;
+        if (stat((dir + "/" + e->d_name).c_str(), &st) == 0 && (st.st_mode & S_IFMT) == S_IFREG)
+            out.push_back(e->d_name);
+    }
+    closedir(d);
+#endif
+    return out;
 }

@@ -1,5 +1,9 @@
 #include "shelf.h"
 #include "boxart.h"
+#include "i18n.h"
+#include "savestate.h"
+#include "stats.h"
+#include "status.h"
 #include "scene3d.h"
 #include "ui.h"
 #include "sfx.h"
@@ -111,6 +115,18 @@ std::string platforms_of(const GameGroup &g) {
         out += e.platform;
     }
     return out;
+}
+
+/* Tiny mark on a version chip: ▶ it can continue where it was left, • it
+   has a save. */
+void status_mark(float cx, float cy, const EntryStatus &st, float a) {
+    if (st.resume > 0) {
+        ui_circle(cx, cy, 7.5f, 0.05f, 0.10f, 0.07f, 0.95f * a);
+        ui_triangle(cx + 4.5f, cy, cx - 2.5f, cy - 4.5f, cx - 2.5f, cy + 4.5f, 0.45f, 0.95f, 0.55f, a);
+    } else if (st.has_save) {
+        ui_circle(cx, cy, 5.5f, 0.05f, 0.10f, 0.07f, 0.95f * a);
+        ui_circle(cx, cy, 3.5f, 0.45f, 0.95f, 0.55f, a);
+    }
 }
 
 std::vector<const std::string *> shots_of(const GameGroup &g, int j) {
@@ -607,6 +623,15 @@ void Shelf::draw_shelf_info(float a) {
     if (g.year > 0) meta.push_back(std::to_string(g.year));
     std::string plats = platforms_of(g);
     if (!plats.empty()) meta.push_back(plats);
+    double played = 0.0;
+    long long last = 0;
+    group_play(g, played, last);
+    if (played >= 60.0) {
+        char buf[96];
+        snprintf(buf, sizeof(buf), tr("%s played"), stats_format_duration(played).c_str());
+        meta.push_back(buf);
+    }
+    if (last > 0) meta.push_back(time_ago(last));
     if (!meta.empty()) meta_line(UI_W * 0.5f, y, 18, meta, true, 0.80f, 0.82f, 0.78f, a);
     y += 30.0f;
 
@@ -640,15 +665,17 @@ void Shelf::draw_shelf_info(float a) {
     const int fr = front(m_sel);
     for (int j = 0; j < shown; j++) {
         const char *t = g.entries[(size_t)j].title.c_str();
+        float w;
         if (g.sequential) {
             bool locked = !db_entry_unlocked(g, j);
             bool done   = j < db_progress_get(g.key);
-            float w = uikit_chip(x, y, t, cpx, done, locked ? 0.45f * a : a);
+            w = uikit_chip(x, y, t, cpx, done, locked ? 0.45f * a : a);
             if (locked) uikit_padlock(x + w - 12.0f, y + chip_h * 0.5f, 16.0f, 0.9f * a);
-            x += w + 8.0f;
         } else {
-            x += uikit_chip(x, y, t, cpx, multi && j == fr, a) + 8.0f;
+            w = uikit_chip(x, y, t, cpx, multi && j == fr, a);
         }
+        status_mark(x + w - 3.0f, y + 1.0f, entry_status(g, j), a);
+        x += w + 8.0f;
     }
     if (more[0]) uikit_chip(x, y, more, cpx, false, 0.8f * a);
     y += chip_h + 12.0f;
@@ -717,8 +744,22 @@ void Shelf::draw_versions_info(float a) {
     if (!e.platform.empty()) meta.push_back(e.platform);
     int year = e.year > 0 ? e.year : g.year;
     if (year > 0) meta.push_back(std::to_string(year));
+    const EntryStatus &st = entry_status(g, j);
+    if (st.seconds >= 60.0) {
+        char buf[96];
+        snprintf(buf, sizeof(buf), tr("%s played"), stats_format_duration(st.seconds).c_str());
+        meta.push_back(buf);
+    }
     if (!meta.empty()) meta_line(lx, y, 18, meta, false, 0.80f, 0.82f, 0.78f, a);
     y += 28.0f;
+    if (st.resume > 0 || st.has_save) {
+        char buf[128];
+        if (st.resume > 0) snprintf(buf, sizeof(buf), tr("Can continue - left %s"), time_ago(st.resume).c_str());
+        else               snprintf(buf, sizeof(buf), "%s", tr("Has a saved game"));
+        status_mark(lx + 7.0f, y + line_h(16) * 0.5f, st, a);
+        text_shadow(lx + 20.0f, y, 16, buf, 0.55f, 0.92f, 0.62f, a);
+        y += 24.0f;
+    }
 
     if (g.sequential) {
         int prog = db_progress_get(g.key);
@@ -819,9 +860,9 @@ void Shelf::draw_hints(PadStyle style) {
     char confirm_lbl[40];
     const char *right;
 #ifdef __SWITCH__
-    right = "In-game: L3 = launcher";
+    right = tr("In-game: L3 = menu");
 #else
-    right = style == STYLE_KEYBOARD ? "In-game: Esc = launcher" : "In-game: L3 = launcher";
+    right = style == STYLE_KEYBOARD ? tr("In-game: Esc = menu") : tr("In-game: L3 = menu");
 #endif
     if (m_view == V_SHELF) {
         const GameGroup &g = group(m_sel);
@@ -923,12 +964,17 @@ void Shelf::confirm(void) {
     if (m_view == V_SHELF) {
         const GameGroup &g = group(m_sel);
         if (g.entries.size() > 1 || g.sequential) open_versions();
-        else start_launch(m_sel, 0);
+        else m_action = ShelfAction{ShelfAction::PLAY, m_sel, 0};
         return;
     }
     int g = m_view == V_VERSIONS ? m_vgroup : m_igroup;
     int j = m_view == V_VERSIONS ? m_ver : m_ientry;
     if (!db_entry_unlocked(group(g), j)) { m_shake = 0.35f; sfx_play_back(); return; }
+    m_action = ShelfAction{ShelfAction::PLAY, g, j};
+}
+
+void Shelf::launch(int g, int j) {
+    if (g < 0 || g >= count() || m_launching) return;
     start_launch(g, j);
 }
 

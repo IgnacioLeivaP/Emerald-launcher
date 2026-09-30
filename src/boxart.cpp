@@ -923,6 +923,15 @@ void boxart_release(void) {
     s_queue_back.clear();
 }
 
+void boxart_invalidate(const GameGroup &g, int idx) {
+    for (const char *kind : {"a", "b"}) {
+        auto it = s_items.find(make_key(g, idx, kind));
+        if (it == s_items.end()) continue;
+        if (it->second.tex) scene3d_texture_free(it->second.tex);
+        s_items.erase(it);        /* a queued key without an item is skipped */
+    }
+}
+
 void boxart_platform_color(const std::string &platform, float rgb[3]) {
     const Palette &p = PALETTES[boxfamily_of(platform.c_str())];
     rgb[0] = p.banner[0]; rgb[1] = p.banner[1]; rgb[2] = p.banner[2];

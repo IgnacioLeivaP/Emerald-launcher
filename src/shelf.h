@@ -22,7 +22,10 @@
 #include <vector>
 
 struct ShelfAction {
-    enum Kind { NONE, LAUNCH, SETTINGS } kind = NONE;
+    /* PLAY: the user picked a version; the launcher answers with launch()
+       (possibly after asking whether to continue). LAUNCH: the launch
+       animation finished, start the game now. */
+    enum Kind { NONE, PLAY, LAUNCH, SETTINGS } kind = NONE;
     int group = -1;
     int entry = -1;
 };
@@ -49,6 +52,7 @@ public:
     void draw_fade(void);
 
     bool poll_action(ShelfAction &out);
+    void launch(int group, int entry);   /* play the launch animation, then LAUNCH */
     void on_launched(void);              /* the launch request was handed off */
     void on_resume(void);                /* back in the launcher after a game  */
     void prewarm(double budget_ms);      /* build box art ahead of time         */

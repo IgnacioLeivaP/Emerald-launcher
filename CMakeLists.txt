@@ -13,12 +13,17 @@ set(EL_SOURCES
     src/uikit.cpp
     src/prefs.cpp
     src/branding.cpp
-    src/overlay.c
     src/core.c
     src/renderer.c
     src/scene3d.c
     src/boxshape.c
     src/fsutil.cpp
+    src/i18n.cpp
+    src/toast.cpp
+    src/savestate.cpp
+    src/stats.cpp
+    src/status.cpp
+    src/pause.cpp
     src/ui.c
     src/gl.c
     src/sfx.c

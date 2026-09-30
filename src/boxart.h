@@ -29,6 +29,8 @@ void boxart_pump(double budget_ms);
 bool boxart_busy(void);
 /* Free every texture (e.g. when the db is reloaded or the language changes). */
 void boxart_release(void);
+/* Rebuild one version's box (its screenshots changed). */
+void boxart_invalidate(const GameGroup &g, int entry_idx);
 
 /* Banner / placeholder color for a platform string ("SNES (Satellaview)"…). */
 void boxart_platform_color(const std::string &platform, float rgb[3]);

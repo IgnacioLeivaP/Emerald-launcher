@@ -8,7 +8,11 @@
 #include "core.h"
 #include "renderer.h"
 #include "ui.h"
-#include "overlay.h"
+#include "pause.h"
+#include "savestate.h"
+#include "stats.h"
+#include "toast.h"
+#include "i18n.h"
 #include "db.h"
 #include "launcher.h"
 #include "sfx.h"
@@ -56,6 +60,8 @@ static LaunchRequest s_current;   /* game being played */
 static int  s_autosave_timer   = 0;
 static bool s_week_notified    = false;  /* prevent repeat of youcangotonextweek */
 static bool s_quit_requested   = false;  /* set when chainloading an external app */
+static std::string s_pending_resume;     /* state to load after the first frame */
+static PadStyle s_pad_style    = STYLE_KEYBOARD;   /* last device used in-game */
 
 /* Present viewport (16:9 letterboxed into the real window) + maximize state */
 static bool s_maximized        = false;
@@ -123,12 +129,29 @@ static bool s_btns[32]    = {};
 static int  s_axes[8]     = {};   /* SDL_CONTROLLER_AXIS_* values */
 static int  s_stick_dir   = 0;    /* launcher menu Y: -1 up / 1 down / 0 center */
 static int  s_stick_lx    = 0;    /* launcher menu X: -1 left / 1 right / 0 center */
-static int  s_stick_dir_x = 0;    /* overlay menu X:  -1 left / 1 right / 0 center */
+static int  s_stick_dir_x = 0;    /* pause menu X:    -1 left / 1 right / 0 center */
+static int  s_stick_dir_y = 0;    /* pause menu Y:    -1 up / 1 down / 0 center */
 #define STICK_DEAD 12000
 
-static void input_poll_cb(void) {}
+/* After the pause menu closes, the buttons that closed it are still down:
+   keep them from reaching the game until everything is released. */
+static bool   s_input_masked = false;
+static Uint32 s_mask_tick = 0;
+
+static bool any_input_held(void) {
+    for (bool b : s_btns) if (b) return true;
+    for (bool k : s_keys) if (k) return true;
+    return false;
+}
+
+static void input_poll_cb(void) {
+    /* (A key whose release got lost can't block the game for long.) */
+    if (s_input_masked && (!any_input_held() || SDL_GetTicks() - s_mask_tick > 1000))
+        s_input_masked = false;
+}
 static int16_t input_state_cb(unsigned port, unsigned dev, unsigned idx, unsigned id) {
     (void)idx;
+    if (s_input_masked) return 0;
     if (port != 0 || dev != RETRO_DEVICE_JOYPAD) return 0;
     switch (id) {
     /* D-pad OR left analog stick (axis 1 = LEFTY, axis 0 = LEFTX). */
@@ -235,6 +258,9 @@ static void launch_external(const LaunchRequest &req) {
         if (!req.keep_open) s_quit_requested = true;   /* close unless told to stay */
     } else {
         fprintf(stderr, "external: CreateProcess failed for %s\n", req.exec_path.c_str());
+        char msg[600];
+        snprintf(msg, sizeof(msg), tr("Couldn't start %s"), fs_stem(req.exec_path).c_str());
+        toast_show(msg, true);
     }
 #else
     /* Linux / other POSIX: spawn it with its arguments, without a shell and
@@ -250,6 +276,9 @@ static void launch_external(const LaunchRequest &req) {
         if (!req.keep_open) s_quit_requested = true;   /* close unless told to stay */
     } else {
         fprintf(stderr, "external: couldn't start %s: %s\n", req.exec_path.c_str(), strerror(rc));
+        char msg[600];
+        snprintf(msg, sizeof(msg), tr("Couldn't start %s"), fs_stem(req.exec_path).c_str());
+        toast_show(msg, true);
     }
 #endif
 }
@@ -263,6 +292,7 @@ static bool launch_game(const LaunchRequest &req) {
 
     if (!core_load(req.core_dll.c_str())) {
         fprintf(stderr,"Cannot load core: %s\n", req.core_dll.c_str());
+        toast_show(tr("Couldn't load the core for this game"), true);
         return false;
     }
     core_set_video_cb(video_refresh_cb);
@@ -273,6 +303,7 @@ static bool launch_game(const LaunchRequest &req) {
     if (!core_load_game(req.rom_path.c_str(),
                         req.srm_path.empty() ? nullptr : req.srm_path.c_str())) {
         fprintf(stderr,"Cannot load game: %s\n", req.rom_path.c_str());
+        toast_show(tr("Couldn't load the game"), true);
         core_unload();
         return false;
     }
@@ -320,11 +351,22 @@ static bool launch_game(const LaunchRequest &req) {
     s_state          = STATE_PLAYING;
     s_autosave_timer = 0;
     s_week_notified  = false;
-    overlay_init();
+    s_pending_resume = req.resume ? state_path(SAVES_DIR, req.stem, true) : std::string();
+    pause_close();
+    pause_week_reset();
+    stats_begin(stats_key(req.group_key, req.stem));
     return true;
 }
 
-static void stop_game(void) {
+/* keep_resume: leave an automatic state so the game can continue from here. */
+static void stop_game(bool keep_resume) {
+    if (keep_resume && !s_current.stem.empty() && core_state_size() > 0) {
+        if (!state_save(state_path(SAVES_DIR, s_current.stem, true)))
+            fprintf(stderr, "resume: couldn't save the automatic state\n");
+    }
+    stats_end();
+    s_launcher.on_game_end(s_current.group_key, s_current.entry_idx);
+    pause_close();
     core_save_sram();
     core_unload();
     renderer_shutdown();
@@ -358,6 +400,7 @@ static void advance_week(void) {
         db_progress_set(s_current.group_key, next_idx);
 
     /* Unload current core */
+    stats_end();
     core_save_sram();
     core_unload();
     renderer_shutdown();
@@ -381,6 +424,9 @@ static void advance_week(void) {
         req.srm_path       = e.srm_path;
         req.carry_srm_from = e.carry_srm_from;
         req.group_key      = g.key;
+        req.stem           = e.stem;
+        req.title          = g.title;
+        req.version        = e.title;
         req.entry_idx      = next_idx;
         req.is_sequential  = true;
         /* Keep watching for "week done" in the new week too, so the chain
@@ -396,6 +442,103 @@ static void advance_week(void) {
     /* Group not found — back to launcher */
     s_state = STATE_LAUNCHER;
     s_current = LaunchRequest{};
+}
+
+/* ── Pause menu ──────────────────────────────────────────────────────── */
+/* SDL numbers controller buttons by position (Xbox layout): the Switch's
+   A (right) is SDL's B and its B (bottom) is SDL's A. */
+#ifdef __SWITCH__
+static const int PAD_CONFIRM = SDL_CONTROLLER_BUTTON_B, PAD_CANCEL = SDL_CONTROLLER_BUTTON_A;
+static const PadStyle PAD_STYLE = STYLE_NINTENDO;
+#else
+static const int PAD_CONFIRM = SDL_CONTROLLER_BUTTON_A, PAD_CANCEL = SDL_CONTROLLER_BUTTON_B;
+static const PadStyle PAD_STYLE = STYLE_XBOX;
+#endif
+
+static PauseInfo pause_info(void) {
+    PauseInfo pi;
+    pi.title   = s_current.title;
+    pi.version = s_current.version;
+    PlayStats ps = stats_get(stats_key(s_current.group_key, s_current.stem));
+    if (ps.seconds >= 60.0) {
+        char buf[96];
+        snprintf(buf, sizeof(buf), tr("%s played"), stats_format_duration(ps.seconds).c_str());
+        pi.played = buf;
+    }
+    pi.states = !s_current.stem.empty() && core_state_size() > 0;
+    if (pi.states) {
+        const std::string sp = state_path(SAVES_DIR, s_current.stem, false);
+        pi.state_time  = state_time(sp);
+        pi.state_thumb = state_thumb(sp);
+    }
+    pi.can_reset = core_can_reset();
+    pi.shader    = prefs_get_shader(s_current.group_key);
+    pi.next_week = s_current.is_sequential && s_current.has_next_week && pause_week_done();
+    pi.week      = s_current.entry_idx + 1;
+    return pi;
+}
+
+static void open_pause_menu(bool next_week) {
+    if (next_week) {
+        /* R3 / Tab only means something once the week is complete. */
+        if (!(s_current.is_sequential && s_current.has_next_week && pause_week_done())) return;
+        sfx_play_open_menu();
+        pause_open_next_week(pause_info());
+        return;
+    }
+    sfx_play_open_menu();
+    pause_open(pause_info());
+}
+
+static void take_screenshot(void) {
+    std::string path = screenshot_save(captures_dir_for(s_current.rom_path),
+                                       s_current.stem.empty() ? fs_stem(s_current.rom_path) : s_current.stem);
+    if (path.empty()) {
+        toast_show(tr("Couldn't save the screenshot"), true);
+        return;
+    }
+    sfx_play_confirm();
+    toast_show(tr("Screenshot saved"));
+    s_launcher.add_capture(s_current.group_key, s_current.entry_idx, path);
+}
+
+static void pause_ui_input(UiInput in) {
+    const PauseAction action = pause_input(in);
+    if (!pause_is_open()) { s_input_masked = true; s_mask_tick = SDL_GetTicks(); }
+    switch (action) {
+    case PAUSE_SAVE_STATE: {
+        bool ok = state_save(state_path(SAVES_DIR, s_current.stem, false));
+        toast_show(ok ? tr("State saved") : tr("Couldn't save the state"), !ok);
+        pause_set_info(pause_info());
+        break;
+    }
+    case PAUSE_LOAD_STATE: {
+        bool ok = state_load(state_path(SAVES_DIR, s_current.stem, false));
+        toast_show(ok ? tr("State loaded") : tr("Couldn't load the state"), !ok);
+        break;
+    }
+    case PAUSE_SCREENSHOT:
+        take_screenshot();
+        break;
+    case PAUSE_SHADER:
+        renderer_set_shader(pause_shader());
+        prefs_set_shader(s_current.group_key, pause_shader());
+        prefs_save();
+        break;
+    case PAUSE_RESET:
+        core_reset();
+        toast_show(tr("Game reset"));
+        break;
+    case PAUSE_NEXT_WEEK:
+        if (s_current.is_sequential) advance_week();
+        break;
+    case PAUSE_QUIT:
+        sfx_play_back_to_launcher();
+        stop_game(true);
+        break;
+    default:
+        break;
+    }
 }
 
 /* ── Event handling ──────────────────────────────────────────────────── */
@@ -446,15 +589,19 @@ static bool handle_event(const SDL_Event &ev) {
                 ev.caxis.axis == SDL_CONTROLLER_AXIS_RIGHTY)
                 s_launcher.handle_axis(ev.caxis.axis, ev.caxis.value);
         }
-        /* In-game overlay (Yes/No) navigates left/right with the stick. */
-        if (s_state == STATE_PLAYING && overlay_get_state() != OVERLAY_HIDDEN
-                && ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) {
+        /* The pause menu navigates with the stick too. */
+        if (s_state == STATE_PLAYING && pause_is_open() &&
+            (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX || ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY)) {
             int nd = (ev.caxis.value < -STICK_DEAD) ? -1
                    : (ev.caxis.value >  STICK_DEAD) ?  1 : 0;
-            if (nd != s_stick_dir_x) {
-                s_stick_dir_x = nd;
-                if      (nd == -1) overlay_button(SDL_CONTROLLER_BUTTON_DPAD_LEFT, true);
-                else if (nd ==  1) overlay_button(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
+            int &cur = ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX ? s_stick_dir_x : s_stick_dir_y;
+            if (nd != cur) {
+                cur = nd;
+                if (nd) {
+                    s_pad_style = PAD_STYLE;
+                    if (ev.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX) pause_ui_input(nd < 0 ? IN_LEFT : IN_RIGHT);
+                    else                                             pause_ui_input(nd < 0 ? IN_UP : IN_DOWN);
+                }
             }
         }
         return true;
@@ -496,62 +643,54 @@ static bool handle_event(const SDL_Event &ev) {
     }
 
     /* STATE_PLAYING */
-    OverlayAction action = OVERLAY_ACTION_NONE;
-
     if (ev.type == SDL_KEYDOWN || ev.type == SDL_KEYUP) {
         bool down = (ev.type == SDL_KEYDOWN);
         s_keys[ev.key.keysym.scancode] = down;
-
         if (down) {
-            int sym = (int)ev.key.keysym.sym;
-            if (overlay_get_state() != OVERLAY_HIDDEN) {
-                action = overlay_key(sym, true);
-            } else {
-                /* TAB = R3: next week prompt — only when week is complete */
-                if (sym == SDLK_TAB && s_current.is_sequential
-                        && s_current.has_next_week && overlay_week_done()) {
-                    overlay_open(OVERLAY_WEEK_NEXT);
+            s_pad_style = STYLE_KEYBOARD;
+            const SDL_Keycode sym = ev.key.keysym.sym;
+            if (pause_is_open()) {
+                switch (sym) {
+                case SDLK_UP:    pause_ui_input(IN_UP);    break;
+                case SDLK_DOWN:  pause_ui_input(IN_DOWN);  break;
+                case SDLK_LEFT:  pause_ui_input(IN_LEFT);  break;
+                case SDLK_RIGHT: pause_ui_input(IN_RIGHT); break;
+                case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_SPACE: pause_ui_input(IN_CONFIRM); break;
+                case SDLK_ESCAPE: case SDLK_BACKSPACE: pause_ui_input(IN_BACK); break;
+                default: break;
                 }
-                /* ESCAPE = L3: return to launcher prompt */
-                if (sym == SDLK_ESCAPE) {
-                    sfx_play_open_menu();
-                    overlay_open(OVERLAY_RETURN_LAUNCHER);
-                }
+            } else if (ev.key.repeat == 0) {
+                if (sym == SDLK_ESCAPE) open_pause_menu(false);           /* = L3 */
+                else if (sym == SDLK_TAB) open_pause_menu(true);          /* = R3 */
+                else if (sym == SDLK_F12) take_screenshot();
             }
         }
     }
     if (ev.type == SDL_CONTROLLERBUTTONDOWN || ev.type == SDL_CONTROLLERBUTTONUP) {
         bool down = (ev.type == SDL_CONTROLLERBUTTONDOWN);
-        s_btns[ev.cbutton.button] = down;
-
+        if (ev.cbutton.button < 32) s_btns[ev.cbutton.button] = down;
         if (down) {
-            int btn = ev.cbutton.button;
-            if (overlay_get_state() != OVERLAY_HIDDEN) {
-                action = overlay_button(btn, true);
+            s_pad_style = PAD_STYLE;
+            const int btn = ev.cbutton.button;
+            if (pause_is_open()) {
+                switch (btn) {
+                case SDL_CONTROLLER_BUTTON_DPAD_UP:    pause_ui_input(IN_UP);    break;
+                case SDL_CONTROLLER_BUTTON_DPAD_DOWN:  pause_ui_input(IN_DOWN);  break;
+                case SDL_CONTROLLER_BUTTON_DPAD_LEFT:  pause_ui_input(IN_LEFT);  break;
+                case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: pause_ui_input(IN_RIGHT); break;
+                case SDL_CONTROLLER_BUTTON_LEFTSTICK:
+                case SDL_CONTROLLER_BUTTON_START:      pause_ui_input(IN_BACK);  break;
+                default:
+                    if (btn == PAD_CONFIRM)     pause_ui_input(IN_CONFIRM);
+                    else if (btn == PAD_CANCEL) pause_ui_input(IN_BACK);
+                    break;
+                }
             } else {
-                if (btn == SDL_CONTROLLER_BUTTON_RIGHTSTICK && s_current.is_sequential
-                        && s_current.has_next_week && overlay_week_done()) {
-                    overlay_open(OVERLAY_WEEK_NEXT);
-                }
-                if (btn == SDL_CONTROLLER_BUTTON_LEFTSTICK) {
-                    sfx_play_open_menu();
-                    overlay_open(OVERLAY_RETURN_LAUNCHER);
-                }
+                if (btn == SDL_CONTROLLER_BUTTON_LEFTSTICK)       open_pause_menu(false);
+                else if (btn == SDL_CONTROLLER_BUTTON_RIGHTSTICK) open_pause_menu(true);
             }
         }
     }
-
-    if (action == OVERLAY_ACTION_NEXT_WEEK) {
-        if (s_current.is_sequential)
-            advance_week();
-        else
-            overlay_close();
-    }
-    if (action == OVERLAY_ACTION_GO_LAUNCHER) {
-        sfx_play_back_to_launcher();
-        stop_game();
-    }
-
     return true;
 }
 
@@ -589,30 +728,38 @@ static void menu_frame_wait(void) {
 static void tick_playing(void) {
     frame_wait();   /* throttle to core's target FPS */
 
-    /* Pause emulation while any overlay dialog is open */
-    if (overlay_get_state() == OVERLAY_HIDDEN) {
+    /* The game is frozen while the pause menu is open. */
+    if (!pause_is_open()) {
         core_run();
+        if (!s_pending_resume.empty()) {        /* "Continue": after the first frame */
+            if (!state_load(s_pending_resume)) toast_show(tr("Couldn't load the state"), true);
+            s_pending_resume.clear();
+        }
+        stats_add(s_frame_target_us / 1000000.0);
         s_autosave_timer++;
         if (s_autosave_timer >= 3600) {
             core_save_sram();
             s_autosave_timer = 0;
         }
         const uint8_t *wram = core_get_wram();
-        overlay_update(wram, s_current.week_complete_mask,
-                       s_current.entry_idx, 0, s_current.has_next_week);
+        pause_week_update(wram, s_current.week_complete_mask, s_current.entry_idx,
+                          s_current.has_next_week);
 
         /* Play youcangotonextweek exactly once when completion is first detected */
         if (!s_week_notified && s_current.is_sequential
-                && s_current.has_next_week && overlay_week_done()) {
+                && s_current.has_next_week && pause_week_done()) {
             sfx_play_next_week();
             s_week_notified = true;
         }
     }
+    if (s_state != STATE_PLAYING) return;     /* a menu action left the game */
 
     renderer_draw();
 
     ui_begin();
-    overlay_draw();
+    pause_draw_hud(s_pad_style);
+    pause_draw(s_pad_style);
+    toast_draw();
     ui_end();
 }
 
@@ -712,6 +859,8 @@ int main(int argc, char *argv[]) {
     ui_init(WIN_W, WIN_H);
     sfx_init();
     prefs_load();
+    i18n_init(prefs_get_language());
+    stats_load(DATA("stats.json"));
 
     const std::string font_path = s_branding.font_path.empty()
         ? ASSET("alagard.ttf") : s_branding.font_path;
@@ -810,7 +959,7 @@ int main(int argc, char *argv[]) {
     }
 
     s_launcher.on_quit();
-    if (s_state == STATE_PLAYING) stop_game();
+    if (s_state == STATE_PLAYING) stop_game(true);
     if (s_audio_dev) SDL_CloseAudioDevice(s_audio_dev);
     sfx_shutdown();
     ui_shutdown();

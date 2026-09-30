@@ -1,6 +1,7 @@
 #include "db.h"
 #include "fsutil.h"
 #include <nlohmann/json.hpp>
+#include <algorithm>
 #include <fstream>
 #include <map>
 #include <set>
@@ -153,6 +154,30 @@ static void scan_recursive(const char *dir,
 }
 #endif
 
+/* Screenshots taken in-game (savestate.cpp) sit in a "captures" folder next
+   to the ROM as <stem>-YYYYMMDD-HHMMSS.png: they follow the version's own
+   screenshots, newest first (and become its box art if db.json has none). */
+static void add_captures(GameEntry &e, std::map<std::string, std::vector<std::string>> &listed) {
+    e.shots_explicit = (int)e.screenshots.size();
+    if (e.rom_path.empty() || e.stem.empty()) return;
+    std::string dir = fs_dirname(e.rom_path);
+    dir = (dir.empty() ? std::string(".") : dir) + "/captures";
+    auto it = listed.find(dir);
+    if (it == listed.end()) it = listed.emplace(dir, fs_list(dir)).first;
+    const std::string prefix = e.stem + "-";
+    std::vector<std::string> mine;
+    for (const auto &name : it->second) {
+        if (name.size() < prefix.size() + 12 || name.compare(0, prefix.size(), prefix) != 0) continue;
+        if (name.compare(name.size() - 4, 4, ".png") != 0) continue;
+        bool stamp = name[prefix.size() + 8] == '-';          /* "20260930-" after the stem */
+        for (size_t k = prefix.size(); k < prefix.size() + 8 && stamp; k++)
+            stamp = name[k] >= '0' && name[k] <= '9';
+        if (stamp) mine.push_back(dir + "/" + name);
+    }
+    std::sort(mine.rbegin(), mine.rend());
+    e.screenshots.insert(e.screenshots.end(), mine.begin(), mine.end());
+}
+
 /* ── Main loader ──────────────────────────────────────────────────────── */
 std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                                const char *saves_dir, const char *cores_dir) {
@@ -239,6 +264,7 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
     };
 
     std::vector<GameGroup> groups;
+    std::map<std::string, std::vector<std::string>> capture_dirs;
 
     /* ── Build groups from db.json["games"] ── */
     if (jdb.contains("games")) {
@@ -280,6 +306,7 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                     if (einfo.contains("screenshots"))
                         for (auto &s : einfo["screenshots"])
                             e.screenshots.push_back(content_path(s.get<std::string>()));
+                    e.shots_explicit = (int)e.screenshots.size();
                     e.year     = einfo.value("year", g.year);
 
                     if (has_external) {
@@ -341,6 +368,7 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
                     if (!csf.empty())
                         e.carry_srm_from = std::string(saves_dir)+"/"+csf+".srm";
 
+                    add_captures(e, capture_dirs);
                     g.entries.push_back(e);
                 }
             }
@@ -364,6 +392,7 @@ std::vector<GameGroup> db_load(const char *db_path, const char *roms_dir,
         e.rom_path = rom;
         e.core_dll = core;
         e.srm_path = std::string(saves_dir)+"/"+stem+".srm";
+        add_captures(e, capture_dirs);
         g.entries.push_back(e);
         groups.push_back(g);
     }

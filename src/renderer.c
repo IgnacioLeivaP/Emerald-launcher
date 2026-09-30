@@ -318,6 +318,11 @@ static int    s_shader_id  = 0;
 static GLint  s_loc_shader = -1;
 static unsigned s_frame_w  = 0; /* last uploaded game frame dimensions */
 static unsigned s_frame_h  = 0;
+/* CPU copy of the last software frame (for screenshots / state thumbnails):
+   the core's buffer is only valid during the video callback. */
+static unsigned char *s_copy = NULL;
+static size_t         s_copy_cap = 0;
+static size_t         s_copy_pitch = 0;
 
 /* Hardware-rendered frame (core drew into its own FBO texture) */
 static int      s_hw_active = 0;
@@ -497,6 +502,18 @@ void renderer_set_hw_frame(unsigned tex, unsigned w, unsigned h,
     s_hw_bl  = bottom_left;
 }
 
+const char *renderer_shader_name(int id) {
+    static const char *NAMES[RENDERER_SHADER_COUNT] = {
+        "None (sharp pixels)",
+        "Smooth (ScaleFX-9x)",
+        "Scanlines",
+        "CRT (scanlines + vignette)",
+        "LCD Grid (handheld)",
+        "Bloom (glow on brights)"
+    };
+    return (id >= 0 && id < RENDERER_SHADER_COUNT) ? NAMES[id] : NAMES[0];
+}
+
 void renderer_set_shader(int id) {
     if (id < 0 || id > 5) id = 0;
     s_shader_id = id;
@@ -582,6 +599,14 @@ void renderer_set_frame(const void *data, unsigned w, unsigned h,
 
     s_frame_w = w;
     s_frame_h = h;
+    {
+        const size_t bytes = pitch * (size_t)h;
+        if (bytes > s_copy_cap) {
+            unsigned char *n = (unsigned char *)realloc(s_copy, bytes);
+            if (n) { s_copy = n; s_copy_cap = bytes; }
+        }
+        if (bytes <= s_copy_cap) { memcpy(s_copy, data, bytes); s_copy_pitch = pitch; }
+    }
     glBindTexture(GL_TEXTURE_2D, s_tex);
     if (pixel_fmt == RETRO_PIXEL_FORMAT_RGB565) {
 #ifdef EL_GLES_API
@@ -778,6 +803,66 @@ void renderer_draw(void) {
     }
 }
 
+unsigned char *renderer_capture(int *out_w, int *out_h) {
+    unsigned w, h;
+    unsigned char *rgba;
+    if (s_hw_active && core_hw_fbo()) {
+        /* Hardware frame: read it back from the core's framebuffer. */
+        w = s_hw_w; h = s_hw_h;
+        if (!w || !h) return NULL;
+        rgba = (unsigned char *)malloc((size_t)w * h * 4);
+        if (!rgba) return NULL;
+        gl_BindFramebuffer(GL_FRAMEBUFFER, core_hw_fbo());
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+        gl_BindFramebuffer(GL_FRAMEBUFFER, 0);
+        if (s_hw_bl) {                              /* GL rows run bottom to top */
+            size_t row = (size_t)w * 4;
+            unsigned char *tmp = (unsigned char *)malloc(row);
+            if (tmp)
+                for (unsigned y = 0; y < h / 2; y++) {
+                    memcpy(tmp, rgba + y * row, row);
+                    memcpy(rgba + y * row, rgba + (h - 1 - y) * row, row);
+                    memcpy(rgba + (h - 1 - y) * row, tmp, row);
+                }
+            free(tmp);
+        }
+        for (size_t i = 0; i < (size_t)w * h; i++) rgba[i * 4 + 3] = 255;
+    } else {
+        w = s_frame_w; h = s_frame_h;
+        if (!s_copy || !w || !h) return NULL;
+        rgba = (unsigned char *)malloc((size_t)w * h * 4);
+        if (!rgba) return NULL;
+        for (unsigned y = 0; y < h; y++) {
+            const unsigned char *src = s_copy + (size_t)y * s_copy_pitch;
+            unsigned char *dst = rgba + (size_t)y * w * 4;
+            for (unsigned x = 0; x < w; x++, dst += 4) {
+                if (s_pixel_fmt == RETRO_PIXEL_FORMAT_RGB565) {
+                    unsigned v = (unsigned)src[x * 2] | ((unsigned)src[x * 2 + 1] << 8);
+                    unsigned r = (v >> 11) & 31, g = (v >> 5) & 63, b = v & 31;
+                    dst[0] = (unsigned char)((r << 3) | (r >> 2));
+                    dst[1] = (unsigned char)((g << 2) | (g >> 4));
+                    dst[2] = (unsigned char)((b << 3) | (b >> 2));
+                } else if (s_pixel_fmt == RETRO_PIXEL_FORMAT_0RGB1555) {
+                    unsigned v = (unsigned)src[x * 2] | ((unsigned)src[x * 2 + 1] << 8);
+                    unsigned r = (v >> 10) & 31, g = (v >> 5) & 31, b = v & 31;
+                    dst[0] = (unsigned char)((r << 3) | (r >> 2));
+                    dst[1] = (unsigned char)((g << 3) | (g >> 2));
+                    dst[2] = (unsigned char)((b << 3) | (b >> 2));
+                } else {                             /* XRGB8888: B, G, R, X in memory */
+                    dst[0] = src[x * 4 + 2];
+                    dst[1] = src[x * 4 + 1];
+                    dst[2] = src[x * 4 + 0];
+                }
+                dst[3] = 255;
+            }
+        }
+    }
+    *out_w = (int)w;
+    *out_h = (int)h;
+    return rgba;
+}
+
 void renderer_shutdown(void) {
     if (s_prog)    { gl_DeleteProgram(s_prog);    s_prog = 0; }
     if (s_prog_hw) { gl_DeleteProgram(s_prog_hw); s_prog_hw = 0; }
@@ -799,4 +884,9 @@ void renderer_shutdown(void) {
     if (s_bloom_fbo[1]) { gl_DeleteFramebuffers(1, &s_bloom_fbo[1]); s_bloom_fbo[1] = 0; }
     if (s_bloom_tex[0]) { glDeleteTextures(1, &s_bloom_tex[0]); s_bloom_tex[0] = 0; }
     if (s_bloom_tex[1]) { glDeleteTextures(1, &s_bloom_tex[1]); s_bloom_tex[1] = 0; }
+    free(s_copy);
+    s_copy = NULL;
+    s_copy_cap = s_copy_pitch = 0;
+    s_frame_w = s_frame_h = 0;
+    s_hw_active = 0;
 }

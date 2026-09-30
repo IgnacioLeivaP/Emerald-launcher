@@ -14,9 +14,15 @@ void renderer_set_frame(const void *data, unsigned w, unsigned h, size_t pitch, 
 void renderer_set_hw_frame(unsigned tex, unsigned w, unsigned h,
                            unsigned max_w, unsigned max_h, int bottom_left);
 void renderer_draw(void);
+/* Copy of the current game frame as straight RGBA8, rows top to bottom
+   (malloc'd; the caller frees it). NULL when there's no frame yet. */
+unsigned char *renderer_capture(int *w, int *h);
 void renderer_shutdown(void);
-/* Shader IDs: 0=None(sharp), 1=Smooth(bilinear), 2=Scanlines, 3=CRT, 4=LCD */
+/* Shader IDs: 0=None (sharp), 1=ScaleFX-9x, 2=Scanlines, 3=CRT, 4=LCD, 5=Bloom */
+#define RENDERER_SHADER_COUNT 6
 void renderer_set_shader(int shader_id);
+/* English display name of a shader id. */
+const char *renderer_shader_name(int shader_id);
 
 #ifdef __cplusplus
 }

@@ -42,6 +42,12 @@ static void   (*s_retro_set_video_refresh)(retro_video_refresh_t);
 static void   (*s_retro_set_audio_sample_batch)(retro_audio_sample_batch_t);
 static void   (*s_retro_set_input_poll)(retro_input_poll_t);
 static void   (*s_retro_set_input_state)(retro_input_state_t);
+/* Optional (a core may lack them): save states, reset, controller ports. */
+static size_t (*s_retro_serialize_size)(void);
+static bool   (*s_retro_serialize)(void *, size_t);
+static bool   (*s_retro_unserialize)(const void *, size_t);
+static void   (*s_retro_reset)(void);
+static void   (*s_retro_set_controller_port_device)(unsigned, unsigned);
 
 static retro_video_refresh_t      s_video_cb;
 static retro_audio_sample_batch_t s_audio_cb;
@@ -182,6 +188,10 @@ int core_get_pixel_format(void) { return s_pixel_format; }
     if (!_p) { fprintf(stderr,"core: missing %s\n",name); return false; } \
     memcpy(&(var), &_p, sizeof(_p)); \
 } while(0)
+#define SYM_OPT(var, name) do { \
+    void *_p = dylib_sym(s_lib, name); \
+    memcpy(&(var), &_p, sizeof(_p)); \
+} while(0)
 
 #ifdef __SWITCH__
 /* Statically-linked cores. Each core's libretro API symbols are prefixed at
@@ -200,7 +210,12 @@ int core_get_pixel_format(void) { return s_pixel_format; }
     extern void   p##retro_set_video_refresh(retro_video_refresh_t); \
     extern void   p##retro_set_audio_sample_batch(retro_audio_sample_batch_t); \
     extern void   p##retro_set_input_poll(retro_input_poll_t); \
-    extern void   p##retro_set_input_state(retro_input_state_t);
+    extern void   p##retro_set_input_state(retro_input_state_t); \
+    extern size_t p##retro_serialize_size(void); \
+    extern bool   p##retro_serialize(void *, size_t); \
+    extern bool   p##retro_unserialize(const void *, size_t); \
+    extern void   p##retro_reset(void); \
+    extern void   p##retro_set_controller_port_device(unsigned, unsigned);
 
 CORE_EXTERNS(gambatte_)
 CORE_EXTERNS(snes9x_)
@@ -222,13 +237,20 @@ typedef struct {
     void   (*set_audio_sample_batch)(retro_audio_sample_batch_t);
     void   (*set_input_poll)(retro_input_poll_t);
     void   (*set_input_state)(retro_input_state_t);
+    size_t (*serialize_size)(void);
+    bool   (*serialize)(void *, size_t);
+    bool   (*unserialize)(const void *, size_t);
+    void   (*reset)(void);
+    void   (*set_controller_port_device)(unsigned, unsigned);
 } BuiltinCore;
 
 #define CORE_ENTRY(name, p) { name, \
     p##retro_init, p##retro_deinit, p##retro_load_game, p##retro_unload_game, \
     p##retro_run, p##retro_get_system_av_info, p##retro_get_memory_data, \
     p##retro_get_memory_size, p##retro_set_environment, p##retro_set_video_refresh, \
-    p##retro_set_audio_sample_batch, p##retro_set_input_poll, p##retro_set_input_state }
+    p##retro_set_audio_sample_batch, p##retro_set_input_poll, p##retro_set_input_state, \
+    p##retro_serialize_size, p##retro_serialize, p##retro_unserialize, p##retro_reset, \
+    p##retro_set_controller_port_device }
 
 static const BuiltinCore s_builtins[] = {
     CORE_ENTRY("gambatte", gambatte_),   /* GB / GBC */
@@ -267,6 +289,11 @@ bool core_load(const char *dll_path) {
     s_retro_set_audio_sample_batch = bc->set_audio_sample_batch;
     s_retro_set_input_poll         = bc->set_input_poll;
     s_retro_set_input_state        = bc->set_input_state;
+    s_retro_serialize_size         = bc->serialize_size;
+    s_retro_serialize              = bc->serialize;
+    s_retro_unserialize            = bc->unserialize;
+    s_retro_reset                  = bc->reset;
+    s_retro_set_controller_port_device = bc->set_controller_port_device;
     s_retro_set_environment(env_cb);
     fprintf(stderr, "core: using built-in '%s'\n", bc->match);
     return true;
@@ -286,6 +313,11 @@ bool core_load(const char *dll_path) {
     SYM(s_retro_set_audio_sample_batch,"retro_set_audio_sample_batch");
     SYM(s_retro_set_input_poll,       "retro_set_input_poll");
     SYM(s_retro_set_input_state,      "retro_set_input_state");
+    SYM_OPT(s_retro_serialize_size,   "retro_serialize_size");
+    SYM_OPT(s_retro_serialize,        "retro_serialize");
+    SYM_OPT(s_retro_unserialize,      "retro_unserialize");
+    SYM_OPT(s_retro_reset,            "retro_reset");
+    SYM_OPT(s_retro_set_controller_port_device, "retro_set_controller_port_device");
     /* Only set the environment callback here. The rest must be set after
        the caller registers its video/audio/input callbacks via core_set_*,
        otherwise NULL function pointers get passed to the core and crash on
@@ -349,6 +381,30 @@ bool core_load_game(const char *rom_path, const char *srm_path) {
 
 void core_run(void)  { s_retro_run(); }
 
+/* ── Save states ─────────────────────────────────────────────────────── */
+size_t core_state_size(void) {
+    if (!s_lib || !s_retro_serialize_size || !s_retro_serialize) return 0;
+    return s_retro_serialize_size();
+}
+
+bool core_state_save(void *buf, size_t size) {
+    if (!s_lib || !s_retro_serialize || !buf || !size) return false;
+    return s_retro_serialize(buf, size);
+}
+
+bool core_state_load(const void *buf, size_t size) {
+    if (!s_lib || !s_retro_unserialize || !buf || !size) return false;
+    return s_retro_unserialize(buf, size);
+}
+
+bool core_can_reset(void) { return s_lib && s_retro_reset; }
+void core_reset(void)     { if (s_lib && s_retro_reset) s_retro_reset(); }
+
+void core_set_port_device(unsigned port, unsigned device) {
+    if (s_lib && s_retro_set_controller_port_device)
+        s_retro_set_controller_port_device(port, device);
+}
+
 void core_save_sram(void) {
     if (!s_retro_get_memory_data || !s_srm_path[0]) return;
     void  *sram = s_retro_get_memory_data(RETRO_MEMORY_SAVE_RAM);
@@ -368,6 +424,11 @@ void core_unload(void) {
     dylib_close(s_lib);
     s_lib = NULL;
     s_srm_path[0] = '\0';
+    s_retro_serialize_size = NULL;
+    s_retro_serialize = NULL;
+    s_retro_unserialize = NULL;
+    s_retro_reset = NULL;
+    s_retro_set_controller_port_device = NULL;
 }
 
 void core_set_video_cb(retro_video_refresh_t cb)           { s_video_cb = cb; }

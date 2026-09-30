@@ -4,6 +4,7 @@ extern "C" {
 #endif
 #include "el_libretro.h"
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct { double fps; double sample_rate; unsigned width; unsigned height; float aspect; } CoreAVInfo;
@@ -13,6 +14,16 @@ bool   core_load_game(const char *rom_path, const char *srm_path);
 void   core_run(void);
 void   core_save_sram(void);
 void   core_unload(void);
+
+/* Save states (0 / false when the core doesn't support them). The size can
+   change between calls for some cores: ask right before saving. */
+size_t core_state_size(void);
+bool   core_state_save(void *buf, size_t size);
+bool   core_state_load(const void *buf, size_t size);
+bool   core_can_reset(void);
+void   core_reset(void);
+/* retro_set_controller_port_device (e.g. RETRO_DEVICE_JOYPAD for player 2). */
+void   core_set_port_device(unsigned port, unsigned device);
 
 /* Access system RAM (WRAM for SNES) — returns NULL if unavailable */
 const uint8_t *core_get_wram(void);

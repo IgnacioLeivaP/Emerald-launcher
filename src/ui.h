@@ -85,6 +85,8 @@ void ui_image_ex(float x, float y, float w, float h, const char *path, int flags
                  float r, float g, float b, float a);
 /* Returns pixel dimensions of a (cached) image. */
 bool ui_image_size(const char *path, int *out_w, int *out_h);
+/* Drop a cached image (the file changed on disk, e.g. a new thumbnail). */
+void ui_image_forget(const char *path);
 
 /* Clip all drawing to a sub-rect; ui_clear_clip restores the full target. */
 void ui_set_clip(float x, float y, float w, float h);

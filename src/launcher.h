@@ -13,6 +13,10 @@ struct LaunchRequest {
     std::string srm_path;
     std::string carry_srm_from;
     std::string group_key;
+    std::string stem;                     /* save / state / screenshot file names */
+    std::string title;                    /* game and version, for the pause menu */
+    std::string version;
+    bool        resume            = false; /* continue from the automatic state   */
     int         entry_idx         = 0;
     bool        is_sequential     = false;
     int         week_complete_mask = 0;   /* WRAM mask for "week done" detection */
@@ -54,6 +58,11 @@ public:
     /* Returns a filled LaunchRequest when the user confirms a game, then clears it. */
     LaunchRequest poll_launch(void);
 
+    /* A screenshot was taken in-game: list it with that version. */
+    void add_capture(const std::string &group_key, int entry, const std::string &path);
+    /* A game just ended: its saves / play time / "continue" state changed. */
+    void on_game_end(const std::string &group_key, int entry);
+
 private:
     std::vector<GameGroup> m_groups;
     std::string m_app_name = "Emerald Launcher";
@@ -89,7 +98,21 @@ private:
     int      m_config_group   = -1;   /* index into m_groups being configured */
     bool     m_clear_confirm  = false;
 
+    /* "Continue where you left off?" (the version has an automatic state) */
+    bool     m_resume_open  = false;
+    int      m_resume_sel   = 0;          /* 0 = continue, 1 = start the game */
+    int      m_resume_g = -1, m_resume_j = -1;
+    float    m_resume_btn[2][4] = {};     /* button rects, for the mouse      */
+    /* Choice for the launch that's in flight (the shelf animates first). */
+    bool     m_launch_resume = false;
+    int      m_launch_g = -1, m_launch_j = -1;
+
     bool in_3d(void) const { return m_use_3d && m_3d_ok; }
+    void request_play(int group, int entry);
+    void start_play(int group, int entry, bool resume);
+    void resume_input(UiInput in);
+    void draw_resume_prompt(void);
+    bool modal_open(void) const { return m_config_open || m_resume_open; }
     bool ensure_3d(void);
     void set_view_3d(bool on);
     void dispatch(UiInput in);

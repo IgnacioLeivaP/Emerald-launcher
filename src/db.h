@@ -9,7 +9,8 @@ struct GameEntry {
     std::string              version_desc;
     std::string              logo_path;
     std::string              cover_path;   /* optional box-art front (3D shelf) */
-    std::vector<std::string> screenshots;
+    std::vector<std::string> screenshots;  /* db.json's first, then in-game captures */
+    int                      shots_explicit = 0;   /* how many came from db.json */
     std::string rom_path;
     std::string core_dll;
     std::string srm_path;          /* explicit srm path (in saves dir) */

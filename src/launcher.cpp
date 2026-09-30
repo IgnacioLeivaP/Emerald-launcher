@@ -1,4 +1,11 @@
 #include "launcher.h"
+#include "boxart.h"
+#include "fsutil.h"
+#include "i18n.h"
+#include "savestate.h"
+#include "stats.h"
+#include "status.h"
+#include "toast.h"
 #include "ui.h"
 #include "sfx.h"
 #include "prefs.h"
@@ -133,6 +140,9 @@ LaunchRequest Launcher::make_request(int gi, int idx) const {
     r.srm_path           = e.srm_path;
     r.carry_srm_from     = e.carry_srm_from;
     r.group_key          = g.key;
+    r.stem               = e.stem;
+    r.title              = g.title;
+    r.version            = g.entries.size() > 1 || g.sequential ? e.title : std::string();
     r.entry_idx          = idx;
     r.is_sequential      = g.sequential;
     r.week_complete_mask = g.sequential ? e.week_complete_mask : 0;
@@ -223,6 +233,19 @@ void Launcher::handle_axis(int axis, int value) {
 
 void Launcher::handle_mouse_button(float x, float y, int button, bool down) {
     if (m_groups.empty()) return;
+    if (m_resume_open) {
+        if (down && button == 3) { m_resume_open = false; sfx_play_back(); }
+        if (!down && button == 1)
+            for (int i = 0; i < 2; i++) {
+                const float *r = m_resume_btn[i];
+                if (x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]) {
+                    m_resume_sel = i;
+                    resume_input(IN_CONFIRM);
+                    break;
+                }
+            }
+        return;
+    }
     if (m_config_open) {
         if (down && button == 3) { close_config(); sfx_play_back(); }
         return;
@@ -231,18 +254,27 @@ void Launcher::handle_mouse_button(float x, float y, int button, bool down) {
 }
 
 void Launcher::handle_mouse_motion(float x, float y) {
-    if (!m_groups.empty() && !m_config_open && in_3d()) m_shelf.mouse_motion(x, y);
+    if (m_groups.empty()) return;
+    if (m_resume_open) {
+        for (int i = 0; i < 2; i++) {
+            const float *r = m_resume_btn[i];
+            if (x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]) m_resume_sel = i;
+        }
+        return;
+    }
+    if (!m_config_open && in_3d()) m_shelf.mouse_motion(x, y);
 }
 
 void Launcher::handle_mouse_wheel(int dy) {
     if (m_groups.empty() || dy == 0) return;
-    if (m_config_open)  { dispatch(dy > 0 ? IN_UP : IN_DOWN); return; }
+    if (modal_open())   { dispatch(dy > 0 ? IN_UP : IN_DOWN); return; }
     if (in_3d())        { m_shelf.mouse_wheel(dy); return; }
     dispatch(dy > 0 ? IN_UP : IN_DOWN);
 }
 
 void Launcher::dispatch(UiInput in) {
     if (m_groups.empty()) return;
+    if (m_resume_open) { resume_input(in); return; }
     if (m_config_open) { config_input(in); return; }
     if (in_3d())       { m_shelf.input(in); return; }
     classic_input(in);
@@ -251,10 +283,16 @@ void Launcher::dispatch(UiInput in) {
 void Launcher::config_input(UiInput in) {
     if (m_clear_confirm) {
         if (in == IN_CONFIRM) {
-            /* Confirm clear: delete all SRM files for the group */
+            /* Confirm clear: delete the group's saves and save states */
             const GameGroup &g = m_groups[(size_t)m_config_group];
-            for (auto &e : g.entries)
-                if (!e.srm_path.empty()) delete_file(e.srm_path.c_str());
+            for (auto &e : g.entries) {
+                if (e.srm_path.empty()) continue;
+                delete_file(e.srm_path.c_str());
+                const std::string saves = fs_dirname(e.srm_path);
+                state_delete(state_path(saves, e.stem, false));
+                state_delete(state_path(saves, e.stem, true));
+                entry_status_forget(g.key, e.stem);
+            }
             if (g.sequential) db_progress_set(g.key, 0);
             m_clear_confirm = false;
             sfx_play_confirm();
@@ -295,7 +333,7 @@ void Launcher::classic_input(UiInput in) {
         switch (in) {
         case IN_UP:   m_selected = (m_selected - 1 + n) % n; m_arrow_dir = +1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
         case IN_DOWN: m_selected = (m_selected + 1) % n;     m_arrow_dir = -1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
-        case IN_CONFIRM: confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); break;
+        case IN_CONFIRM: confirm_selection(); break;
         case IN_SETTINGS: open_config(m_selected); sfx_play_confirm(); break;
         default: break;
         }
@@ -305,7 +343,7 @@ void Launcher::classic_input(UiInput in) {
         switch (in) {
         case IN_UP:   m_sub_sel = (m_sub_sel - 1 + e) % e; m_arrow_dir = +1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
         case IN_DOWN: m_sub_sel = (m_sub_sel + 1) % e;     m_arrow_dir = -1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
-        case IN_CONFIRM: confirm_selection(); m_pending.valid ? sfx_play_enter_game() : sfx_play_confirm(); break;
+        case IN_CONFIRM: confirm_selection(); break;
         case IN_BACK: m_submenu = -1; sfx_play_back(); break;
         case IN_SETTINGS: open_config(m_submenu); sfx_play_confirm(); break;
         default: break;
@@ -333,22 +371,83 @@ void Launcher::confirm_selection(void) {
         if (g.sequential) {
             int idx = db_progress_get(g.key);
             if (idx >= (int)g.entries.size()) idx = (int)g.entries.size()-1;
-            m_pending = make_request(m_selected, idx);
-            remember(m_selected, idx);
+            request_play(m_selected, idx);
         } else if (g.entries.size()==1) {
-            m_pending = make_request(m_selected, 0);
-            remember(m_selected, 0);
+            request_play(m_selected, 0);
         } else {
             m_submenu = m_selected;
             int last = prefs_get_last_entry(g.key);
             m_sub_sel = (last >= 0 && last < (int)g.entries.size()) ? last : 0;
+            sfx_play_confirm();
         }
     } else {
-        if (!db_entry_unlocked(g, m_sub_sel)) return;
-        m_pending = make_request(m_selected, m_sub_sel);
-        remember(m_selected, m_sub_sel);
-        m_submenu = -1;
+        if (!db_entry_unlocked(g, m_sub_sel)) { sfx_play_back(); return; }
+        request_play(m_selected, m_sub_sel);
     }
+}
+
+/* The user picked a version: ask first if it can continue from where they
+   left it, then start it (the shelf plays its launch animation first). */
+void Launcher::request_play(int g, int j) {
+    if (entry_status(m_groups[(size_t)g], j).resume > 0) {
+        m_resume_open = true;
+        m_resume_sel  = 0;
+        m_resume_g    = g;
+        m_resume_j    = j;
+        sfx_play_confirm();
+        return;
+    }
+    start_play(g, j, false);
+}
+
+void Launcher::start_play(int g, int j, bool resume) {
+    if (in_3d()) {
+        m_launch_g = g;
+        m_launch_j = j;
+        m_launch_resume = resume;
+        m_shelf.launch(g, j);
+        return;
+    }
+    m_pending = make_request(g, j);
+    m_pending.resume = resume;
+    remember(g, j);
+    m_submenu = -1;
+    sfx_play_enter_game();
+}
+
+void Launcher::resume_input(UiInput in) {
+    switch (in) {
+    case IN_UP: case IN_DOWN: case IN_LEFT: case IN_RIGHT:
+        m_resume_sel ^= 1;
+        sfx_play_nav();
+        break;
+    case IN_CONFIRM:
+        m_resume_open = false;
+        start_play(m_resume_g, m_resume_j, m_resume_sel == 0);
+        break;
+    case IN_BACK: case IN_SETTINGS:
+        m_resume_open = false;
+        sfx_play_back();
+        break;
+    default:
+        break;
+    }
+}
+
+void Launcher::add_capture(const std::string &key, int entry, const std::string &path) {
+    for (auto &g : m_groups) {
+        if (g.key != key || entry < 0 || entry >= (int)g.entries.size()) continue;
+        GameEntry &e = g.entries[(size_t)entry];
+        const size_t pos = std::min((size_t)std::max(e.shots_explicit, 0), e.screenshots.size());
+        e.screenshots.insert(e.screenshots.begin() + (std::ptrdiff_t)pos, path);   /* newest capture first */
+        boxart_invalidate(g, entry);
+    }
+}
+
+void Launcher::on_game_end(const std::string &key, int entry) {
+    for (auto &g : m_groups)
+        if (g.key == key && entry >= 0 && entry < (int)g.entries.size())
+            entry_status_forget(g.key, g.entries[(size_t)entry].stem);
 }
 
 /* ── Drawing ────────────────────────────────────────────────────────── */
@@ -373,8 +472,9 @@ void Launcher::draw(void) {
     if (m_groups.empty()) {
         ui_begin();
         ui_rect(0,0,WIN_W,WIN_H, PANEL_R,PANEL_G,PANEL_B,0.88f);
-        ui_text(PAD, WIN_H/2-16, 2.0f, "No ROMs found. Place roms + db.json and restart.",
+        ui_text(PAD, WIN_H/2-16, 2.0f, tr("No ROMs found. Place roms + db.json and restart."),
                 1.0f,1.0f,1.0f);
+        toast_draw();
         ui_end();
         return;
     }
@@ -390,8 +490,12 @@ void Launcher::draw(void) {
         if (act.kind == ShelfAction::SETTINGS) {
             open_config(act.group);
             sfx_play_confirm();
+        } else if (act.kind == ShelfAction::PLAY) {
+            request_play(act.group, act.entry);
         } else if (act.kind == ShelfAction::LAUNCH) {
             m_pending = make_request(act.group, act.entry);
+            m_pending.resume = m_launch_resume && act.group == m_launch_g && act.entry == m_launch_j;
+            m_launch_resume = false;
             remember(act.group, act.entry);
             m_shelf.on_launched();
         }
@@ -400,12 +504,14 @@ void Launcher::draw(void) {
     m_shelf.draw_scene();
     ui_set_draw_bg(false);
     ui_begin();
-    m_shelf.draw_overlay(m_style, m_app_name, m_config_open);
+    m_shelf.draw_overlay(m_style, m_app_name, modal_open());
     if (m_config_open) {
         draw_config_modal();
         draw_config_hints();
     }
+    if (m_resume_open) draw_resume_prompt();
     m_shelf.draw_fade();
+    toast_draw();
     ui_end();
     ui_set_draw_bg(true);
 }
@@ -425,9 +531,9 @@ static void draw_tri(float cx, float cy, float h, bool point_up,
 static const char *ingame_hint(PadStyle style) {
 #ifdef __SWITCH__
     (void)style;
-    return "In-game: L3 = launcher";
+    return tr("In-game: L3 = menu");
 #else
-    return style == STYLE_KEYBOARD ? "In-game: Esc = launcher" : "In-game: L3 = launcher";
+    return style == STYLE_KEYBOARD ? tr("In-game: Esc = menu") : tr("In-game: L3 = menu");
 #endif
 }
 
@@ -465,6 +571,8 @@ void Launcher::draw_classic(void) {
     if (m_config_open) {
         draw_config_modal();
         draw_config_hints();
+    } else if (m_resume_open) {
+        draw_resume_prompt();
     } else {
         Hint h[5];
         int n = 0;
@@ -493,8 +601,54 @@ void Launcher::draw_classic(void) {
 #endif
         uikit_hint_bar(h, n, m_style, ingame_hint(m_style));
     }
+    toast_draw();
 
     ui_end();
+}
+
+/* "Continue where you left off?": the automatic state's picture on the left,
+   Continue / Start game on the right. */
+void Launcher::draw_resume_prompt(void) {
+    const GameGroup &g = m_groups[(size_t)m_resume_g];
+    const GameEntry &e = g.entries[(size_t)m_resume_j];
+    const EntryStatus &st = entry_status(g, m_resume_j);
+    const float w = 820.0f, h = 420.0f, x = (WIN_W - w) * 0.5f, y = (WIN_H - h) * 0.5f - 16.0f;
+    ui_rect(0.0f, 0.0f, WIN_W, WIN_H, 0.0f, 0.0f, 0.0f, 0.55f);
+    ui_round_rect(x - 3.0f, y - 3.0f, w + 6.0f, h + 6.0f, 14.0f, GOLD_R, GOLD_G, GOLD_B, 0.80f);
+    ui_round_rect(x, y, w, h, 12.0f, PANEL_R, PANEL_G, PANEL_B, 0.97f);
+
+    const char *title = tr("Continue where you left off?");
+    ui_text_px(x + 36.0f, y + 26.0f, 26, title, GOLD_R, GOLD_G, GOLD_B, 1.0f);
+    std::string sub = g.title;
+    if (g.entries.size() > 1 || g.sequential) sub += "  -  " + e.title;
+    ui_text_px(x + 36.0f, y + 64.0f, 18, sub.c_str(), 0.86f, 0.88f, 0.84f, 1.0f);
+
+    /* The moment it was left. */
+    const float tx = x + 36.0f, ty = y + 104.0f, tw = 400.0f, th = 290.0f;
+    ui_rect(tx - 2.0f, ty - 2.0f, tw + 4.0f, th + 4.0f, GOLD_R, GOLD_G, GOLD_B, 0.55f);
+    ui_rect(tx, ty, tw, th, 0.0f, 0.0f, 0.0f, 1.0f);
+    if (ui_image_size(st.resume_thumb.c_str(), nullptr, nullptr))
+        ui_image_ex(tx, ty, tw, th, st.resume_thumb.c_str(), UI_IMG_FIT | UI_IMG_SMOOTH, 1, 1, 1, 1);
+
+    char left[96];
+    snprintf(left, sizeof(left), tr("Left %s"), time_ago(st.resume).c_str());
+    const char *labels[2] = { tr("Continue"), tr("Start game") };
+    const char *notes[2]  = { left, tr("Loads your in-game save") };
+    const float bx = x + 470.0f, bw = w - 470.0f - 36.0f, bh = 96.0f;
+    for (int i = 0; i < 2; i++) {
+        const float by = y + 120.0f + (float)i * (bh + 22.0f);
+        const bool sel = m_resume_sel == i;
+        if (sel) ui_round_rect(bx, by, bw, bh, 10.0f, GOLD_R, GOLD_G, GOLD_B, 0.95f);
+        else     ui_round_rect_outline(bx, by, bw, bh, 10.0f, 1.5f, GOLD_R, GOLD_G, GOLD_B, 0.65f);
+        const float ink = sel ? 0.08f : 0.92f;
+        ui_text_px(bx + 22.0f, by + 18.0f, 24, labels[i], ink, sel ? 0.07f : 0.90f, sel ? 0.03f : 0.84f, 1.0f);
+        ui_text_px(bx + 22.0f, by + 56.0f, 16, notes[i], sel ? 0.20f : 0.62f, sel ? 0.16f : 0.66f,
+                   sel ? 0.06f : 0.60f, 1.0f);
+        m_resume_btn[i][0] = bx; m_resume_btn[i][1] = by; m_resume_btn[i][2] = bw; m_resume_btn[i][3] = bh;
+    }
+
+    Hint hints[3] = { {HB_DPAD_V, tr("Select")}, {HB_CONFIRM, tr("OK")}, {HB_BACK, tr("Back")} };
+    uikit_hint_bar(hints, 3, m_style, nullptr);
 }
 
 void Launcher::draw_carousel(void) {
@@ -719,6 +873,34 @@ void Launcher::draw_detail(const GameGroup &g, int entry_hint) {
         if (!plat.empty()) {
             ui_text(x, y, 1.5f, plat.c_str(), 0.80f,0.80f,0.78f);
             y += 24;
+        }
+    }
+
+    /* Saves and play time. */
+    {
+        std::string line;
+        double played = 0.0;
+        long long last = 0;
+        if (entry_hint >= 0 && entry_hint < (int)g.entries.size()) {
+            const EntryStatus &st = entry_status(g, entry_hint);
+            char buf[128];
+            if (st.resume > 0)     snprintf(buf, sizeof(buf), tr("Can continue - left %s"), time_ago(st.resume).c_str());
+            else if (st.has_save)  snprintf(buf, sizeof(buf), "%s", tr("Has a saved game"));
+            else                   buf[0] = '\0';
+            line = buf;
+            played = st.seconds;
+        } else {
+            group_play(g, played, last);
+        }
+        if (played >= 60.0) {
+            char buf[96];
+            snprintf(buf, sizeof(buf), tr("%s played"), stats_format_duration(played).c_str());
+            line += (line.empty() ? "" : "  -  ") + std::string(buf);
+        }
+        if (last > 0) line += (line.empty() ? "" : "  -  ") + time_ago(last);
+        if (!line.empty()) {
+            ui_text_px(x, y, 18, line.c_str(), 0.55f, 0.92f, 0.62f, 1.0f);
+            y += 26;
         }
     }
 

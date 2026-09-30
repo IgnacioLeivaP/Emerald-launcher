@@ -18,5 +18,9 @@ bool fs_read(const std::string &path, std::vector<unsigned char> &out);
    power cut mid-write never leaves a truncated prefs / stats / save state. */
 bool fs_write_atomic(const std::string &path, const void *data, size_t size);
 bool fs_write_atomic(const std::string &path, const std::string &text);
+/* Move a finished temporary file over `path` (replacing it). */
+bool fs_replace(const std::string &tmp, const std::string &path);
 /* Seconds since the epoch of the file's last modification (0 = missing). */
 long long fs_mtime(const std::string &path);
+/* Names of the regular files in a directory (unsorted; empty if missing). */
+std::vector<std::string> fs_list(const std::string &dir);

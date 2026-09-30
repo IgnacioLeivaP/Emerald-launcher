@@ -15,6 +15,7 @@ static std::unordered_map<std::string, int> s_shaders;
 static std::unordered_map<std::string, int> s_last_entry;
 static bool        s_view_3d = true;
 static std::string s_last_group;
+static std::string s_language = "auto";
 
 void prefs_load(void) {
     const bool migrate = !fs_exists(PREFS_PATH) && std::string(PREFS_PATH) != OLD_PREFS_PATH &&
@@ -31,6 +32,8 @@ void prefs_load(void) {
             s_view_3d = j["view"].get<std::string>() != "classic";
         if (j.contains("last_group") && j["last_group"].is_string())
             s_last_group = j["last_group"].get<std::string>();
+        if (j.contains("language") && j["language"].is_string())
+            s_language = j["language"].get<std::string>();
         if (j.contains("last_entry") && j["last_entry"].is_object()) {
             for (auto &[k, v] : j["last_entry"].items())
                 if (v.is_number_integer()) s_last_entry[k] = v.get<int>();
@@ -50,6 +53,7 @@ void prefs_save(void) {
         j["shaders"][k] = v;
     j["view"] = s_view_3d ? "3d" : "classic";
     if (!s_last_group.empty()) j["last_group"] = s_last_group;
+    j["language"] = s_language;
     j["last_entry"] = nlohmann::json::object();
     for (auto &[k, v] : s_last_entry)
         j["last_entry"][k] = v;
@@ -80,3 +84,6 @@ int prefs_get_last_entry(const std::string &key) {
 void prefs_set_last_entry(const std::string &key, int idx) {
     s_last_entry[key] = idx;
 }
+
+std::string prefs_get_language(void)                  { return s_language; }
+void        prefs_set_language(const std::string &c) { s_language = c.empty() ? "auto" : c; }

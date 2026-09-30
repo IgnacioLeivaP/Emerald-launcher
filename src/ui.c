@@ -580,6 +580,16 @@ void ui_clear_clip(void) {
     s_clip_x0 = 0; s_clip_y0 = 0;
     s_clip_x1 = s_pw; s_clip_y1 = s_ph;
 }
+void ui_image_forget(const char *path) {
+    if (!path || !path[0]) return;
+    for (int i = 0; i < s_img_count; i++)
+        if (s_img_cache[i].pixels && strcmp(s_img_cache[i].path, path) == 0) img_free(&s_img_cache[i]);
+    /* It may exist now even if an earlier load failed. */
+    unsigned long long hash = path_hash(path);
+    for (int i = 0; i < s_failed_n; i++)
+        if (s_failed[i] == hash) s_failed[i] = 0;
+}
+
 bool ui_image_size(const char *path, int *out_w, int *out_h) {
     if (!path || !path[0]) return false;
     CachedImage *ci = img_load(path);
