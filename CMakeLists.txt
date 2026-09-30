@@ -194,7 +194,7 @@ else()
         add_executable(el_tests
             tests/main.cpp tests/test_audio.cpp tests/test_db.cpp tests/test_misc.cpp tests/test_input.cpp
             src/audio.cpp src/db.cpp src/fsutil.cpp src/i18n.cpp src/prefs.cpp src/stats.cpp
-            src/input.cpp src/toast.cpp src/ui.c src/gl.c src/boxshape.c)
+            src/input.cpp src/toast.cpp src/uikit.cpp src/ui.c src/gl.c src/boxshape.c src/sfx.c)
         target_include_directories(el_tests PRIVATE src include tests)
         target_link_libraries(el_tests PRIVATE SDL2::SDL2 SDL2_ttf::SDL2_ttf SDL2_image::SDL2_image)
         if(EL_GLES)

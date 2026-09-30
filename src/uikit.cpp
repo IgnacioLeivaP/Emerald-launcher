@@ -1,6 +1,9 @@
 #include "uikit.h"
+#include <cmath>
 #include "i18n.h"
 #include "ui.h"
+
+UiTheme g_theme;
 
 static const char *face_label(HintBtn b, PadStyle s) {
     /* Same physical positions everywhere (confirm, back, top = inspect,
@@ -10,6 +13,7 @@ static const char *face_label(HintBtn b, PadStyle s) {
     case HB_BACK:     return "B";
     case HB_INSPECT:  return s == STYLE_NINTENDO ? "X" : "Y";
     case HB_SETTINGS: return s == STYLE_NINTENDO ? "Y" : "X";
+    case HB_FAVORITE: return s == STYLE_NINTENDO ? "-" : "=";
     default:          return "";
     }
 }
@@ -22,6 +26,7 @@ static const char *key_label(HintBtn b) {
     case HB_SETTINGS:   return "Tab";
     case HB_FULLSCREEN: return "F11";
     case HB_STICK_R:    return tr("Mouse");
+    case HB_FAVORITE:   return "F";
     default:            return "";
     }
 }
@@ -148,4 +153,21 @@ float uikit_chip(float x, float y, const char *text, int px, bool filled, float 
         ui_text_px(x + 12.0f, ty, px, text, 0.93f, 0.93f, 0.90f, a);
     }
     return w;
+}
+
+void uikit_star(float cx, float cy, float r, float red, float green, float blue, float a) {
+    /* Five spikes around a pentagon core. */
+    const float PI = 3.14159265f, ri = r * 0.42f;
+    float ox[5], oy[5], ix[5], iy[5];
+    for (int i = 0; i < 5; i++) {
+        const float ao = -PI * 0.5f + (float)i * 2.0f * PI / 5.0f;
+        const float ai = ao + PI / 5.0f;
+        ox[i] = cx + cosf(ao) * r;  oy[i] = cy + sinf(ao) * r;
+        ix[i] = cx + cosf(ai) * ri; iy[i] = cy + sinf(ai) * ri;
+    }
+    for (int i = 0; i < 5; i++) {
+        const int p = (i + 4) % 5;                      /* inner point before this spike */
+        ui_triangle(ox[i], oy[i], ix[p], iy[p], ix[i], iy[i], red, green, blue, a);
+        ui_triangle(cx, cy, ix[p], iy[p], ix[i], iy[i], red, green, blue, a);
+    }
 }

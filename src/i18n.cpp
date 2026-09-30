@@ -165,6 +165,26 @@ const char *const ES[][2] = {
     {"Player %d: %s", "Jugador %d: %s"},
     {"Player %d disconnected", "Jugador %d desconectado"},
 
+    /* Favorites, order, attract mode, music */
+    {"Favorite", "Favorito"},
+    {"Unfavorite", "Quitar favorito"},
+    {"Favorites", "Favoritos"},
+    {"Added to favorites", "Añadido a favoritos"},
+    {"Removed from favorites", "Quitado de favoritos"},
+    {"Order", "Orden"},
+    {"Show", "Mostrar"},
+    {"All games", "Todos los juegos"},
+    {"db.json order", "Orden de db.json"},
+    {"A-Z", "A-Z"},
+    {"Year", "Año"},
+    {"Platform", "Plataforma"},
+    {"Recently played", "Jugados recientemente"},
+    {"Most played", "Más jugados"},
+    {"Menu music", "Música del menú"},
+    {"None (branding.json)", "Ninguna (branding.json)"},
+    {"Attract mode", "Modo exhibición"},
+    {"Press any button", "Pulsa cualquier botón"},
+
     /* Toasts */
     {"State saved", "Estado guardado"},
     {"State loaded", "Estado cargado"},

@@ -25,7 +25,7 @@ struct ShelfAction {
     /* PLAY: the user picked a version; the launcher answers with launch()
        (possibly after asking whether to continue). LAUNCH: the launch
        animation finished, start the game now. */
-    enum Kind { NONE, PLAY, LAUNCH, SETTINGS } kind = NONE;
+    enum Kind { NONE, PLAY, LAUNCH, SETTINGS, FAVORITE } kind = NONE;
     int group = -1;
     int entry = -1;
 };
@@ -56,6 +56,10 @@ public:
     void on_launched(void);              /* the launch request was handed off */
     void on_resume(void);                /* back in the launcher after a game  */
     void prewarm(double budget_ms);      /* build box art ahead of time         */
+    /* Attract mode: after a minute without input the shelf browses on its
+       own (allowed = the preference is on and no modal is open). */
+    void set_attract_allowed(bool allowed) { m_attract_allowed = allowed; }
+    bool attract_active(void) const { return m_attract; }
     void release_gpu(void);              /* free the big offscreen targets      */
 
 private:
@@ -124,6 +128,12 @@ private:
     bool  m_action_sent = false;
     ShelfAction m_action;
 
+    /* Attract mode */
+    bool  m_attract_allowed = false;
+    bool  m_attract = false;
+    float m_idle = 0.0f;
+    float m_attract_t = 0.0f, m_attract_next = 0.0f;
+
     /* Mouse */
     bool  m_drag = false;
     float m_drag_x0 = 0.0f, m_drag_last_x = 0.0f, m_drag_peek = 0.0f;
@@ -162,6 +172,8 @@ private:
     void close_inspect(void);
     void start_launch(int g, int j);
     void info_changed(void) { m_info_alpha = 0.0f; m_shot_scroll = 0.0f; }
+    bool wake(void);                     /* any input: leave attract mode */
+    void step_group(int d);              /* move the selection without a sound */
     const Inst *pick(float x, float y) const;
 
     void draw_shelf_info(float a);

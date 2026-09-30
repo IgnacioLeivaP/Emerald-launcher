@@ -4,6 +4,16 @@
     "icon": "",
     "splash": "",
     "background": "",
-    "font": ""
+    "font": "",
+    "music": ""
+  },
+  "music_volume": 0.6,
+  "theme": {
+    "accent": "#F2C726",
+    "accent_dim": "#B38F1A",
+    "panel": "#08120D",
+    "spot": "#338552",
+    "floor": "#010604",
+    "glow": "#F2B32E"
   }
 }

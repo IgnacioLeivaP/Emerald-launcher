@@ -17,7 +17,8 @@ for path in glob.glob(f'{SRC}/*.cpp'):
         keys.add(m.group(1))
 # Strings translated through variables (shader names, button names).
 keys.update(['None (sharp pixels)', 'Smooth (ScaleFX-9x)', 'Scanlines', 'CRT (scanlines + vignette)',
-             'LCD Grid (handheld)', 'Bloom (glow on brights)', 'Up', 'Down', 'Left', 'Right', 'Start', 'Select'])
+             'LCD Grid (handheld)', 'Bloom (glow on brights)', 'Up', 'Down', 'Left', 'Right', 'Start', 'Select',
+             'db.json order', 'A-Z', 'Year', 'Platform', 'Recently played', 'Most played'])
 
 table = {}
 problems = []

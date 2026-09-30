@@ -924,6 +924,15 @@ void boxart_release(void) {
     s_queue_back.clear();
 }
 
+void boxart_drop_queue(void) {
+    for (auto it = s_items.begin(); it != s_items.end();) {
+        if (it->second.queued) it = s_items.erase(it);
+        else { it->second.g = nullptr; ++it; }      /* rebuilt boxes get a fresh pointer */
+    }
+    s_queue.clear();
+    s_queue_back.clear();
+}
+
 void boxart_invalidate(const GameGroup &g, int idx) {
     for (const char *kind : {"a", "b"}) {
         auto it = s_items.find(make_key(g, idx, kind));

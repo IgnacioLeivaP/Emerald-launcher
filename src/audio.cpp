@@ -1,4 +1,5 @@
 #include "audio.h"
+#include "sfx.h"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <cmath>
@@ -90,6 +91,7 @@ void audio_push(const int16_t *in, size_t frames) {
     if (queued > s_drc.target_frames * 4.0) return;
     s_out.clear();
     s_drc.process(in, frames, queued, s_out);
+    sfx_mix_game(s_out.data(), s_out.size() / 2);          /* menu sounds in-game */
     if (!s_out.empty())
         SDL_QueueAudio(s_dev, s_out.data(), (Uint32)(s_out.size() * sizeof(int16_t)));
 }

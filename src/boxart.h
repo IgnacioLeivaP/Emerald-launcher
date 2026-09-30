@@ -29,6 +29,9 @@ void boxart_pump(double budget_ms);
 bool boxart_busy(void);
 /* Free every texture (e.g. when the db is reloaded or the language changes). */
 void boxart_release(void);
+/* Forget boxes waiting to be built (the game list is being rebuilt; they're
+   requested again next frame). Built textures stay. */
+void boxart_drop_queue(void);
 /* Rebuild one version's box (its screenshots changed). */
 void boxart_invalidate(const GameGroup &g, int entry_idx);
 

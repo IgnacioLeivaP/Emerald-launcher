@@ -831,6 +831,11 @@ int main(int argc, char *argv[]) {
     ui_init(WIN_W, WIN_H);
     sfx_init();
     prefs_load();
+    branding_apply_theme(BRANDING_PATH);
+    if (!s_branding.music_path.empty() && sfx_music_load(s_branding.music_path.c_str())) {
+        sfx_music_set_volume(s_branding.music_volume);
+        sfx_music_play(prefs_get_music());
+    }
     i18n_init(prefs_get_language());
     perf_set_enabled(prefs_get_perf_hud());
     stats_load(DATA("stats.json"));

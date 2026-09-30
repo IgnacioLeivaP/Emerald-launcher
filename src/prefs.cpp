@@ -4,6 +4,7 @@
 #include <nlohmann/json.hpp>
 #include <cstdio>
 #include <fstream>
+#include <set>
 #include <unordered_map>
 
 /* Next to db.json (sdmc:/emerald/ on Switch). Older builds wrote it to the
@@ -17,6 +18,11 @@ static bool        s_view_3d = true;
 static std::string s_last_group;
 static std::string s_language = "auto";
 static bool        s_perf_hud = false;
+static bool        s_music = true;
+static bool        s_attract = true;
+static std::string s_sort = "default";
+static std::string s_show = "all";
+static std::set<std::string> s_favorites;
 
 void prefs_load(void) {
     const bool migrate = !fs_exists(PREFS_PATH) && std::string(PREFS_PATH) != OLD_PREFS_PATH &&
@@ -37,6 +43,14 @@ void prefs_load(void) {
             s_language = j["language"].get<std::string>();
         if (j.contains("perf_hud") && j["perf_hud"].is_boolean())
             s_perf_hud = j["perf_hud"].get<bool>();
+        if (j.contains("music") && j["music"].is_boolean())     s_music = j["music"].get<bool>();
+        if (j.contains("attract") && j["attract"].is_boolean()) s_attract = j["attract"].get<bool>();
+        if (j.contains("sort") && j["sort"].is_string())        s_sort = j["sort"].get<std::string>();
+        if (j.contains("show") && j["show"].is_string())        s_show = j["show"].get<std::string>();
+        if (j.contains("favorites") && j["favorites"].is_array()) {
+            s_favorites.clear();
+            for (auto &k : j["favorites"]) if (k.is_string()) s_favorites.insert(k.get<std::string>());
+        }
         if (j.contains("last_entry") && j["last_entry"].is_object()) {
             for (auto &[k, v] : j["last_entry"].items())
                 if (v.is_number_integer()) s_last_entry[k] = v.get<int>();
@@ -58,6 +72,12 @@ void prefs_save(void) {
     if (!s_last_group.empty()) j["last_group"] = s_last_group;
     j["language"] = s_language;
     if (s_perf_hud) j["perf_hud"] = true;
+    j["music"] = s_music;
+    j["attract"] = s_attract;
+    j["sort"] = s_sort;
+    j["show"] = s_show;
+    j["favorites"] = nlohmann::json::array();
+    for (auto &k : s_favorites) j["favorites"].push_back(k);
     j["last_entry"] = nlohmann::json::object();
     for (auto &[k, v] : s_last_entry)
         j["last_entry"][k] = v;
@@ -94,3 +114,17 @@ void        prefs_set_language(const std::string &c) { s_language = c.empty() ? 
 
 bool prefs_get_perf_hud(void)       { return s_perf_hud; }
 void prefs_set_perf_hud(bool on)    { s_perf_hud = on; }
+
+bool prefs_get_music(void)       { return s_music; }
+void prefs_set_music(bool on)    { s_music = on; }
+bool prefs_get_attract(void)     { return s_attract; }
+void prefs_set_attract(bool on)  { s_attract = on; }
+std::string prefs_get_sort(void)                  { return s_sort; }
+void        prefs_set_sort(const std::string &m)  { s_sort = m.empty() ? "default" : m; }
+std::string prefs_get_show(void)                  { return s_show; }
+void        prefs_set_show(const std::string &f)  { s_show = f.empty() ? "all" : f; }
+bool prefs_is_favorite(const std::string &k)      { return s_favorites.count(k) != 0; }
+void prefs_set_favorite(const std::string &k, bool on) {
+    if (on) s_favorites.insert(k);
+    else    s_favorites.erase(k);
+}

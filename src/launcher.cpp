@@ -1,5 +1,6 @@
 #include "launcher.h"
 #include "boxart.h"
+#include "boxshape.h"
 #include "controls.h"
 #include "perf.h"
 #include "renderer.h"
@@ -12,6 +13,7 @@
 #include "ui.h"
 #include "sfx.h"
 #include "prefs.h"
+#include <cctype>
 #include "paths.h"
 #include <SDL.h>
 #include <algorithm>
@@ -32,12 +34,19 @@ static const int NUM_SHADERS = RENDERER_SHADER_COUNT;
 enum {
     ROW_CLEAR = NUM_SHADERS,
     ROW_VIEW,
+    ROW_SORT,
+    ROW_SHOW,
     ROW_LANG,
+    ROW_MUSIC,
+    ROW_ATTRACT,
     ROW_PERF,
     ROW_CONTROLS,
     CONFIG_ROWS
 };
 static const char *LANG_PREFS[] = { "auto", "en", "es" };
+static const char *SORT_PREFS[] = { "default", "az", "year", "platform", "recent", "played" };
+static const char *SORT_NAMES[] = { "db.json order", "A-Z", "Year", "Platform", "Recently played", "Most played" };
+static const int   NUM_SORTS = 6;
 
 /* Layout constants (1280x720) */
 static const float WIN_W  = UI_W;
@@ -66,23 +75,90 @@ static const int BTN_LEFT = SDL_CONTROLLER_BUTTON_DPAD_LEFT, BTN_RIGHT = SDL_CON
 static const int STICK_DEAD = 8000;
 
 void Launcher::load(std::vector<GameGroup> groups) {
-    m_groups   = std::move(groups);
-    m_selected = 0;
+    m_all      = std::move(groups);
     m_submenu  = -1;
     m_sub_sel  = 0;
     m_use_3d   = prefs_get_view_3d();
+    rebuild_view(prefs_get_last_group());      /* resume where the user left off */
+}
 
-    /* Resume where the user left off. */
-    const std::string last = prefs_get_last_group();
+std::string Launcher::current_key(void) const {
+    if (m_groups.empty()) return "";
+    int g = in_3d() ? m_shelf.selected() : (m_submenu >= 0 ? m_submenu : m_selected);
+    g = std::max(0, std::min(g, (int)m_groups.size() - 1));
+    return m_groups[(size_t)g].key;
+}
+
+/* The games shown, in the chosen order (Settings): all of them or only the
+   favorites, by db.json order, title, year, platform, last played or play
+   time. Rebuilt when any of that changes; keeps `keep_key` selected. */
+void Launcher::rebuild_view(const std::string &keep_key) {
+    const bool fav_only = prefs_get_show() == "favorites";
+    std::vector<GameGroup> v;
+    for (const auto &g : m_all)
+        if (!fav_only || prefs_is_favorite(g.key)) v.push_back(g);
+    if (v.empty()) v = m_all;                           /* no favorites yet: show everything */
+
+    auto lower = [](std::string t) { for (auto &c : t) c = (char)tolower((unsigned char)c); return t; };
+    auto by_title = [&](const GameGroup &a, const GameGroup &b) { return lower(db_title(a)) < lower(db_title(b)); };
+    const std::string mode = prefs_get_sort();
+    if (mode == "az") {
+        std::stable_sort(v.begin(), v.end(), by_title);
+    } else if (mode == "year") {
+        std::stable_sort(v.begin(), v.end(), [](const GameGroup &a, const GameGroup &b) {
+            return (a.year > 0 ? a.year : 99999) < (b.year > 0 ? b.year : 99999);
+        });
+    } else if (mode == "platform") {
+        auto fam = [](const GameGroup &g) {
+            int f = g.entries.empty() ? FAM_DEFAULT : (int)boxfamily_of(g.entries[0].platform.c_str());
+            return f == FAM_DEFAULT ? FAM_COUNT : f;          /* unknown platforms last */
+        };
+        std::stable_sort(v.begin(), v.end(), [&](const GameGroup &a, const GameGroup &b) {
+            const int fa = fam(a), fb = fam(b);
+            return fa != fb ? fa < fb : (a.year > 0 ? a.year : 99999) < (b.year > 0 ? b.year : 99999);
+        });
+    } else if (mode == "recent" || mode == "played") {
+        std::vector<std::pair<double, long long>> key(v.size());
+        for (size_t i = 0; i < v.size(); i++) group_play(v[i], key[i].first, key[i].second);
+        std::vector<size_t> idx(v.size());
+        for (size_t i = 0; i < idx.size(); i++) idx[i] = i;
+        std::stable_sort(idx.begin(), idx.end(), [&](size_t a, size_t b) {
+            return mode == "recent" ? key[a].second > key[b].second : key[a].first > key[b].first;
+        });
+        std::vector<GameGroup> sorted;
+        for (size_t i : idx) sorted.push_back(std::move(v[i]));
+        v = std::move(sorted);
+    }
+
+    boxart_drop_queue();              /* queued box art points into the old list */
+    const std::string config_key = (m_config_group >= 0 && m_config_group < (int)m_groups.size())
+                                   ? m_groups[(size_t)m_config_group].key : keep_key;
+    m_groups = std::move(v);
+    /* The settings modal follows its game to its new place. */
+    m_config_group = 0;
     for (size_t i = 0; i < m_groups.size(); i++)
-        if (m_groups[i].key == last) { m_selected = (int)i; break; }
-
+        if (m_groups[i].key == config_key) m_config_group = (int)i;
+    m_selected = 0;
+    for (size_t i = 0; i < m_groups.size(); i++)
+        if (m_groups[i].key == keep_key) { m_selected = (int)i; break; }
+    m_submenu = -1;
     m_shelf.attach(&m_groups);
     for (size_t i = 0; i < m_groups.size(); i++) {
         int e = prefs_get_last_entry(m_groups[i].key);
         if (e >= 0 && e < (int)m_groups[i].entries.size()) m_shelf.set_front((int)i, e);
     }
     m_shelf.select(m_selected);
+}
+
+void Launcher::toggle_favorite(int g) {
+    if (g < 0 || g >= (int)m_groups.size()) return;
+    const std::string key = m_groups[(size_t)g].key;
+    const bool on = !prefs_is_favorite(key);
+    prefs_set_favorite(key, on);
+    prefs_save();
+    toast_show(on ? tr("Added to favorites") : tr("Removed from favorites"));
+    sfx_play_confirm();
+    if (!on && prefs_get_show() == "favorites") rebuild_view(key);   /* it leaves the list */
 }
 
 LaunchRequest Launcher::poll_launch(void) {
@@ -124,11 +200,8 @@ void Launcher::on_game_start(void) {
 
 void Launcher::on_quit(void) {
     if (m_groups.empty()) return;
-    int g = in_3d() ? m_shelf.selected() : (m_submenu >= 0 ? m_submenu : m_selected);
-    if (g >= 0 && g < (int)m_groups.size()) {
-        prefs_set_last_group(m_groups[(size_t)g].key);
-        prefs_save();
-    }
+    prefs_set_last_group(current_key());
+    prefs_save();
 }
 
 LaunchRequest Launcher::make_request(int gi, int idx) const {
@@ -179,6 +252,7 @@ void Launcher::handle_key(int key, bool down) {
     case SDLK_ESCAPE: case SDLK_BACKSPACE: dispatch(IN_BACK); break;
     case SDLK_TAB:   dispatch(IN_SETTINGS); break;
     case SDLK_SPACE: case 'i': dispatch(IN_INSPECT); break;
+    case 'f': dispatch(IN_FAVORITE); break;
     case SDLK_PAGEUP:   case 'q': dispatch(IN_PAGE_PREV); break;
     case SDLK_PAGEDOWN: case 'e': dispatch(IN_PAGE_NEXT); break;
     default: break;
@@ -205,6 +279,7 @@ void Launcher::handle_button(int btn, bool down) {
     else if (btn == BTN_B)     in = IN_BACK;
     else if (btn == BTN_LEFT_FACE || btn == BTN_START) in = IN_SETTINGS;
     else if (btn == BTN_TOP_FACE) in = IN_INSPECT;
+    else if (btn == SDL_CONTROLLER_BUTTON_BACK) in = IN_FAVORITE;
     else if (btn == BTN_L)     in = IN_PAGE_PREV;
     else if (btn == BTN_R)     in = IN_PAGE_NEXT;
     else return;
@@ -348,6 +423,24 @@ void Launcher::change_option(int row, int d) {
         i18n_init(LANG_PREFS[cur]);
         boxart_release();                      /* the boxes print text too */
         prefs_save();
+    } else if (row == ROW_SORT) {
+        int cur = 0;
+        for (int i = 0; i < NUM_SORTS; i++) if (prefs_get_sort() == SORT_PREFS[i]) cur = i;
+        prefs_set_sort(SORT_PREFS[(cur + d + NUM_SORTS) % NUM_SORTS]);
+        prefs_save();
+        rebuild_view(current_key());
+    } else if (row == ROW_SHOW) {
+        const bool fav = prefs_get_show() != "favorites";
+        prefs_set_show(fav ? "favorites" : "all");
+        prefs_save();
+        rebuild_view(current_key());
+    } else if (row == ROW_MUSIC) {
+        prefs_set_music(!prefs_get_music());
+        sfx_music_play(prefs_get_music());
+        prefs_save();
+    } else if (row == ROW_ATTRACT) {
+        prefs_set_attract(!prefs_get_attract());
+        prefs_save();
     } else if (row == ROW_PERF) {
         perf_set_enabled(!perf_enabled());
         prefs_set_perf_hud(perf_enabled());
@@ -364,6 +457,7 @@ void Launcher::classic_input(UiInput in) {
         case IN_UP:   m_selected = (m_selected - 1 + n) % n; m_arrow_dir = +1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
         case IN_DOWN: m_selected = (m_selected + 1) % n;     m_arrow_dir = -1; m_arrow_time = SDL_GetTicks(); sfx_play_nav(); break;
         case IN_CONFIRM: confirm_selection(); break;
+        case IN_FAVORITE: toggle_favorite(m_selected); break;
         case IN_SETTINGS: open_config(m_selected); sfx_play_confirm(); break;
         default: break;
         }
@@ -467,19 +561,23 @@ void Launcher::resume_input(UiInput in) {
 }
 
 void Launcher::add_capture(const std::string &key, int entry, const std::string &path) {
-    for (auto &g : m_groups) {
-        if (g.key != key || entry < 0 || entry >= (int)g.entries.size()) continue;
-        GameEntry &e = g.entries[(size_t)entry];
-        const size_t pos = std::min((size_t)std::max(e.shots_explicit, 0), e.screenshots.size());
-        e.screenshots.insert(e.screenshots.begin() + (std::ptrdiff_t)pos, path);   /* newest capture first */
-        boxart_invalidate(g, entry);
-    }
+    for (auto *list : { &m_all, &m_groups })
+        for (auto &g : *list) {
+            if (g.key != key || entry < 0 || entry >= (int)g.entries.size()) continue;
+            GameEntry &e = g.entries[(size_t)entry];
+            const size_t pos = std::min((size_t)std::max(e.shots_explicit, 0), e.screenshots.size());
+            e.screenshots.insert(e.screenshots.begin() + (std::ptrdiff_t)pos, path);   /* newest capture first */
+            if (list == &m_groups) boxart_invalidate(g, entry);
+        }
 }
 
 void Launcher::on_game_end(const std::string &key, int entry) {
-    for (auto &g : m_groups)
+    for (auto &g : m_all)
         if (g.key == key && entry >= 0 && entry < (int)g.entries.size())
             entry_status_forget(g.key, g.entries[(size_t)entry].stem);
+    /* Orders that depend on play time change after every game. */
+    const std::string mode = prefs_get_sort();
+    if (mode == "recent" || mode == "played") rebuild_view(key);
 }
 
 /* ── Drawing ────────────────────────────────────────────────────────── */
@@ -515,6 +613,7 @@ void Launcher::draw(void) {
     if (!in_3d()) { draw_classic(); return; }
 
     if (resumed) m_shelf.on_resume();
+    m_shelf.set_attract_allowed(prefs_get_attract() && !modal_open());
     m_shelf.set_right_stick(m_rs_x, m_rs_y);
     m_shelf.update((float)dt);
     ShelfAction act;
@@ -522,6 +621,8 @@ void Launcher::draw(void) {
         if (act.kind == ShelfAction::SETTINGS) {
             open_config(act.group);
             sfx_play_confirm();
+        } else if (act.kind == ShelfAction::FAVORITE) {
+            toggle_favorite(act.group);
         } else if (act.kind == ShelfAction::PLAY) {
             request_play(act.group, act.entry);
         } else if (act.kind == ShelfAction::LAUNCH) {
@@ -1160,6 +1261,25 @@ void Launcher::draw_config_modal(void) {
                 label = tr("Language");
                 opts[0] = tr("Auto"); opts[1] = "English"; opts[2] = "Español"; nopts = 3;
                 for (int i = 0; i < 3; i++) if (prefs_get_language() == LANG_PREFS[i]) active = i;
+            } else if (row == ROW_SORT) {
+                label = tr("Order");
+                int cur = 0;
+                for (int i = 0; i < NUM_SORTS; i++) if (prefs_get_sort() == SORT_PREFS[i]) cur = i;
+                opts[0] = tr(SORT_NAMES[cur]); nopts = 1;     /* ◀ value ▶ */
+                active = 0;
+            } else if (row == ROW_SHOW) {
+                label = tr("Show");
+                opts[0] = tr("All games"); opts[1] = tr("Favorites"); nopts = 2;
+                active = prefs_get_show() == "favorites" ? 1 : 0;
+            } else if (row == ROW_MUSIC) {
+                label = tr("Menu music");
+                opts[0] = tr("Off"); opts[1] = tr("On"); nopts = 2;
+                active = prefs_get_music() ? 1 : 0;
+                if (!sfx_music_loaded()) { opts[0] = tr("None (branding.json)"); nopts = 1; active = -1; }
+            } else if (row == ROW_ATTRACT) {
+                label = tr("Attract mode");
+                opts[0] = tr("Off"); opts[1] = tr("On"); nopts = 2;
+                active = prefs_get_attract() ? 1 : 0;
             } else if (row == ROW_PERF) {
                 label = tr("Performance info");
                 opts[0] = tr("Off"); opts[1] = tr("On"); nopts = 2;
@@ -1169,9 +1289,17 @@ void Launcher::draw_config_modal(void) {
             }
             float vr = hov ? GOLD_R : 0.85f, vg = hov ? GOLD_G : 0.85f, vb = hov ? GOLD_B : 0.80f;
             ui_text_px(tx + 4.0f, ty + 2.0f, 20, label, vr, vg, vb, 1.0f);
-            float cx = tx + 200.0f;
-            for (int i = 0; i < nopts; i++)
-                cx += uikit_chip(cx, ty - 1.0f, opts[i], 14, i == active, i == active ? 1.0f : 0.6f) + 8.0f;
+            float cx = tx + 230.0f;
+            if (row == ROW_SORT) {                   /* many values: ◀ one ▶ */
+                const float cy = ty + ROW * 0.5f - 3.0f;
+                ui_triangle(cx, cy, cx + 8.0f, cy - 6.0f, cx + 8.0f, cy + 6.0f, vr, vg, vb, hov ? 1.0f : 0.5f);
+                cx += 14.0f;
+                cx += uikit_chip(cx, ty - 1.0f, opts[0], 14, true, 1.0f) + 6.0f;
+                ui_triangle(cx + 8.0f, cy, cx, cy - 6.0f, cx, cy + 6.0f, vr, vg, vb, hov ? 1.0f : 0.5f);
+            } else {
+                for (int i = 0; i < nopts; i++)
+                    cx += uikit_chip(cx, ty - 1.0f, opts[i], 14, i == active, i == active ? 1.0f : 0.6f) + 8.0f;
+            }
             ty += ROW;
         }
     } else {

@@ -16,7 +16,14 @@ struct Branding {
     std::string splash_path;
     std::string background_path;
     std::string font_path;
+    std::string music_path;        /* menu music, .ogg or .wav (none by default) */
+    float       music_volume = 0.6f;
 };
+
+/* "theme": { "accent": "#F2C726", "accent_dim": ..., "panel": ...,
+   "spot": ..., "floor": ..., "glow": ... } → g_theme (uikit.h). Colors
+   that are missing or malformed keep their default. */
+void branding_apply_theme(const char *path);
 
 /* Reads branding.json at `path`; returns defaults if the file is missing,
    unreadable, or missing individual fields. Never throws. */

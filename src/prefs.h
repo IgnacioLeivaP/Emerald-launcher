@@ -25,3 +25,18 @@ void        prefs_set_language(const std::string &code);
 /* Performance overlay (fps, timings, memory). */
 bool prefs_get_perf_hud(void);
 void prefs_set_perf_hud(bool on);
+
+/* Menu music on / off (when branding.json provides a track). */
+bool prefs_get_music(void);
+void prefs_set_music(bool on);
+/* Attract mode: the shelf browses by itself after a minute idle. */
+bool prefs_get_attract(void);
+void prefs_set_attract(bool on);
+/* Shelf order ("default", "az", "year", "platform", "recent", "played") and
+   filter ("all", "favorites"); favorite games by key. */
+std::string prefs_get_sort(void);
+void        prefs_set_sort(const std::string &mode);
+std::string prefs_get_show(void);
+void        prefs_set_show(const std::string &filter);
+bool        prefs_is_favorite(const std::string &group_key);
+void        prefs_set_favorite(const std::string &group_key, bool on);

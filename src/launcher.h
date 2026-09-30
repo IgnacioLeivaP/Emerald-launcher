@@ -64,7 +64,8 @@ public:
     void on_game_end(const std::string &group_key, int entry);
 
 private:
-    std::vector<GameGroup> m_groups;
+    std::vector<GameGroup> m_all;       /* everything db.json has          */
+    std::vector<GameGroup> m_groups;    /* shown: filtered and sorted m_all */
     std::string m_app_name = "Emerald Launcher";
     int m_selected = 0;    /* selected group index (classic view) */
     int m_submenu  = -1;   /* -1 = carousel, >= 0 = open submenu for that group */
@@ -130,5 +131,8 @@ private:
     void confirm_selection(void);
     void open_config(int group);
     void change_option(int row, int d);
+    void rebuild_view(const std::string &keep_key);
+    std::string current_key(void) const;
+    void toggle_favorite(int group);
     void close_config(void);
 };

@@ -1,5 +1,6 @@
 #pragma once
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,6 +19,17 @@ void sfx_play_enter_game(void);       /* entergame.wav     — a game is about t
 void sfx_play_open_menu(void);        /* openmenuingame.wav — overlay opened while playing */
 void sfx_play_back_to_launcher(void); /* backtolauncher.wav — confirmed return to launcher */
 void sfx_play_next_week(void);        /* youcangotonextweek.wav — AST week complete        */
+
+/* While a game runs the menu audio device is closed (the game has its own);
+   sounds triggered then are mixed into the game's 48 kHz stereo output. */
+void sfx_mix_game(short *stereo, size_t frames);
+
+/* Menu music (branding.json "assets.music"): a looping .ogg or .wav under
+   the menus, faded in and out, silent during games. */
+bool sfx_music_load(const char *path);
+bool sfx_music_loaded(void);
+void sfx_music_play(bool on);
+void sfx_music_set_volume(float volume);   /* 0..1 */
 
 #ifdef __cplusplus
 }

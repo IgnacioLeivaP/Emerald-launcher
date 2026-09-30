@@ -1,6 +1,7 @@
 #include "shelf.h"
 #include "boxart.h"
 #include "i18n.h"
+#include "prefs.h"
 #include "savestate.h"
 #include "stats.h"
 #include "status.h"
@@ -46,6 +47,9 @@ const float ROLL = 3.3f * DEG;    /* per layer; taller boxes behind lean less */
 const int   FAN_STATIC = 4;
 const float FAN_W = 4.9f;         /* widest static row (world units)         */
 const float VZ0 = 0.80f, VX1 = 1.48f, VXS = 1.02f, VZ1 = -0.05f, VZS = 0.28f, VANG = 34.0f * DEG;
+
+/* Attract mode: idle time before it starts, time on each game. */
+const float ATTRACT_DELAY = 60.0f, ATTRACT_STEP = 6.5f;
 
 /* Inspect: the box is lifted toward the camera, closer for small boxes. */
 const float IY = 0.10f, IDIST = 3.75f;    /* reference: a 1.4-tall NES box */
@@ -541,10 +545,8 @@ void Shelf::draw_scene(void) {
             fy = 1.0f - (in.sy0 + in.sy1) * 0.5f / UI_H;
             break;
         }
-    const float spot[3] = {0.20f, 0.52f, 0.32f};
-    scene3d_draw_backdrop(fx, fy, 0.30f, 0.46f, spot, 0.40f, 0.75f);
-    const float floor_rgb[3] = {0.004f, 0.022f, 0.015f};
-    scene3d_draw_floor(FLOOR_Y, floor_rgb, 0.80f);
+    scene3d_draw_backdrop(fx, fy, 0.30f, 0.46f, g_theme.spot, 0.40f, 0.75f);
+    scene3d_draw_floor(FLOOR_Y, g_theme.floor, 0.80f);
 
     scene3d_set_camera(&m_view_m, &m_proj_m, m_eye);
     auto material = [&](const Inst &in) {
@@ -575,10 +577,9 @@ void Shelf::draw_scene(void) {
         scene3d_draw_box(&in.model, &m);
     }
     if (!m_launching) {
-        const float gold[3] = {0.95f, 0.70f, 0.18f};
         for (const auto &in : m_insts)
             if (in.focus)
-                scene3d_draw_box_glow(&in.model, in.shape, gold,
+                scene3d_draw_box_glow(&in.model, in.shape, g_theme.glow,
                                       (0.50f + 0.16f * sinf(m_time * 2.4f)) * (1.0f - it), 0.11f);
     }
     scene3d_end();
@@ -617,6 +618,10 @@ void Shelf::draw_shelf_info(float a) {
 
     int tpx = fit_px(db_title(g).c_str(), 1120.0f, 40, 26);
     text_shadow_center(UI_W * 0.5f, y, tpx, db_title(g).c_str(), GOLD_R, GOLD_G, GOLD_B, a);
+    if (prefs_is_favorite(g.key)) {
+        const float tw = (float)ui_text_width(tpx, db_title(g).c_str());
+        uikit_star(UI_W * 0.5f - tw * 0.5f - 24.0f, y + line_h(tpx) * 0.5f, 12.0f, GOLD_R, GOLD_G, GOLD_B, a);
+    }
     y += line_h(tpx) + 6.0f;
 
     std::vector<std::string> meta;
@@ -734,7 +739,12 @@ void Shelf::draw_versions_info(float a) {
     const float lx = 70.0f, lw = 590.0f;
     float y = INFO_Y - 4.0f;
 
-    text_shadow(lx, y, 18, db_title(g).c_str(), GOLD_DIM_R + 0.1f, GOLD_DIM_G + 0.1f, GOLD_DIM_B + 0.05f, a);
+    float tx = lx;
+    if (prefs_is_favorite(g.key)) {
+        uikit_star(lx + 8.0f, y + line_h(18) * 0.5f, 8.0f, GOLD_R, GOLD_G, GOLD_B, a);
+        tx += 22.0f;
+    }
+    text_shadow(tx, y, 18, db_title(g).c_str(), GOLD_DIM_R + 0.1f, GOLD_DIM_G + 0.1f, GOLD_DIM_B + 0.05f, a);
     y += 26.0f;
     int tpx = fit_px(db_entry_title(e).c_str(), lw, 36, 22);
     text_shadow(lx, y, tpx, db_entry_title(e).c_str(), GOLD_R, GOLD_G, GOLD_B, a);
@@ -855,7 +865,15 @@ void Shelf::draw_header(const std::string &app_name, float a_shelf, float a_ver,
 }
 
 void Shelf::draw_hints(PadStyle style) {
-    Hint h[6];
+    if (m_attract) {                           /* "press any button", pulsing */
+        uikit_hint_bar(nullptr, 0, style, nullptr);
+        const char *t = tr("Press any button");
+        const float a = 0.55f + 0.45f * sinf(m_time * 3.0f);
+        ui_text_px((UI_W - (float)ui_text_width(18, t)) * 0.5f, UI_H - HINT_BAR_H * 0.5f - line_h(18) * 0.5f,
+                   18, t, GOLD_R, GOLD_G, GOLD_B, a);
+        return;
+    }
+    Hint h[7];
     int n = 0;
     char confirm_lbl[40];
     const char *right;
@@ -873,6 +891,7 @@ void Shelf::draw_hints(PadStyle style) {
         h[n++] = {HB_DPAD_H, tr("Browse")};
         h[n++] = {HB_CONFIRM, confirm_lbl};
         h[n++] = {HB_INSPECT, tr("Look at box")};
+        h[n++] = {HB_FAVORITE, prefs_is_favorite(g.key) ? tr("Unfavorite") : tr("Favorite")};
         h[n++] = {HB_SETTINGS, tr("Settings")};
 #ifndef __SWITCH__
         if (style == STYLE_KEYBOARD) h[n++] = {HB_FULLSCREEN, tr("Maximize")};
@@ -983,8 +1002,25 @@ void Shelf::back(void) {
     else if (m_view == V_VERSIONS) { m_view = V_SHELF; info_changed(); sfx_play_back(); }
 }
 
+bool Shelf::wake(void) {
+    m_idle = 0.0f;
+    if (!m_attract) return false;
+    m_attract = false;
+    return true;
+}
+
+void Shelf::step_group(int d) {
+    const int n = count();
+    if (n <= 1) return;
+    if (wraps()) m_target += d;
+    else         m_target = mod(m_target + d, n);
+    m_sel = mod(m_target, n);
+    info_changed();
+}
+
 void Shelf::input(UiInput in) {
     if (count() == 0 || m_launching) return;
+    if (wake()) return;                /* the first press only ends attract mode */
     switch (m_view) {
     case V_SHELF:
         switch (in) {
@@ -995,6 +1031,7 @@ void Shelf::input(UiInput in) {
         case IN_CONFIRM:  confirm(); break;
         case IN_INSPECT:  open_inspect(); break;
         case IN_SETTINGS: m_action = ShelfAction{ShelfAction::SETTINGS, m_sel, -1}; break;
+        case IN_FAVORITE: m_action = ShelfAction{ShelfAction::FAVORITE, m_sel, -1}; break;
         default: break;
         }
         break;
@@ -1006,6 +1043,7 @@ void Shelf::input(UiInput in) {
         case IN_BACK:     back(); break;
         case IN_INSPECT:  open_inspect(); break;
         case IN_SETTINGS: m_action = ShelfAction{ShelfAction::SETTINGS, m_vgroup, -1}; break;
+        case IN_FAVORITE: m_action = ShelfAction{ShelfAction::FAVORITE, m_vgroup, -1}; break;
         }
         break;
     case V_INSPECT:
@@ -1015,6 +1053,7 @@ void Shelf::input(UiInput in) {
         case IN_CONFIRM: confirm(); break;
         case IN_BACK: case IN_INSPECT: close_inspect(); break;
         case IN_SETTINGS: m_action = ShelfAction{ShelfAction::SETTINGS, m_igroup, -1}; break;
+        case IN_FAVORITE: m_action = ShelfAction{ShelfAction::FAVORITE, m_igroup, -1}; break;
         default: break;
         }
         break;
@@ -1022,6 +1061,7 @@ void Shelf::input(UiInput in) {
 }
 
 void Shelf::set_right_stick(float x, float y) {
+    if (x != 0.0f || y != 0.0f) wake();
     m_stick_x = x;
     m_stick_y = y;
 }
@@ -1037,6 +1077,7 @@ const Shelf::Inst *Shelf::pick(float x, float y) const {
 
 void Shelf::mouse_button(float x, float y, int button, bool down) {
     if (m_launching || count() == 0) return;
+    if (down && wake()) return;
     if (button == 3) { if (down) back(); return; }          /* right click */
     if (button != 1) return;
     if (down) {
@@ -1074,6 +1115,7 @@ void Shelf::mouse_button(float x, float y, int button, bool down) {
 
 void Shelf::mouse_motion(float x, float y) {
     (void)y;
+    wake();
     if (!m_drag) return;
     float dx = x - m_drag_last_x;
     m_drag_last_x = x;
@@ -1084,6 +1126,7 @@ void Shelf::mouse_motion(float x, float y) {
 
 void Shelf::mouse_wheel(int dy) {
     if (m_launching || dy == 0 || count() == 0) return;
+    if (wake()) return;
     if (m_view == V_INSPECT) { m_insp_yaw_target += dy > 0 ? -PI * 0.25f : PI * 0.25f; return; }
     input(dy > 0 ? IN_LEFT : IN_RIGHT);
 }
@@ -1111,7 +1154,22 @@ void Shelf::update(float dt) {
     if (m_view == V_INSPECT) m_insp_yaw_target += m_stick_x * 3.0f * dt;
     m_insp_yaw   = approach(m_insp_yaw, m_insp_yaw_target, 7.0f, dt);
     m_insp_pitch = approach(m_insp_pitch, m_view == V_INSPECT ? -m_stick_y * 0.5f : 0.0f, 7.0f, dt);
-    m_peek = approach(m_peek, m_view == V_INSPECT ? 0.0f : m_stick_x * 1.15f + m_drag_peek, 7.0f, dt);
+    /* Attract mode: browse by itself, each box turning gently. */
+    if (m_attract_allowed && m_view == V_SHELF && !m_launching && n > 1) m_idle += dt;
+    else                                                                 m_idle = 0.0f;
+    if (!m_attract && m_idle > ATTRACT_DELAY) {
+        m_attract = true;
+        m_attract_t = 0.0f;
+        m_attract_next = ATTRACT_STEP * 0.5f;
+    }
+    if (m_attract) {
+        if (!m_attract_allowed || m_view != V_SHELF) m_attract = false;
+        m_attract_t += dt;
+        m_attract_next -= dt;
+        if (m_attract_next <= 0.0f) { step_group(+1); m_attract_next = ATTRACT_STEP; }
+    }
+    const float sway = m_attract ? 0.55f * sinf(m_attract_t * 0.8f) : 0.0f;
+    m_peek = approach(m_peek, m_view == V_INSPECT ? 0.0f : m_stick_x * 1.15f + m_drag_peek + sway, 7.0f, dt);
 
     m_info_alpha = std::min(1.0f, m_info_alpha + dt * 4.5f);
     if (m_shake > 0.0f) m_shake = std::max(0.0f, m_shake - dt);
