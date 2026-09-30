@@ -5,25 +5,12 @@
    viewport, then composites it back — so it works the same on desktop GL 3.3
    and on the Switch's GLES 3.0. */
 #include "mat4.h"
+#include "boxshape.h"
 #include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-/* Box proportions in world units (a retro cardboard game box: 5 x 7 x 1). */
-#define BOX_W 1.0f
-#define BOX_H 1.4f
-#define BOX_D 0.2f
-
-/* Box-art atlas layout (pixels): front cover on the left, the spine as an
-   upright strip on the right. The spine's top BOXART_CAP_H rows are a solid
-   color used for the top, bottom and (by default) back faces. */
-#define BOXART_FRONT_W 360
-#define BOXART_SPINE_W 72
-#define BOXART_H       504
-#define BOXART_ATLAS_W (BOXART_FRONT_W + BOXART_SPINE_W)
-#define BOXART_CAP_H   14
 
 bool scene3d_init(void);
 void scene3d_shutdown(void);
@@ -43,21 +30,27 @@ unsigned scene3d_texture_rgba(const unsigned char *rgba, int w, int h, bool mipm
 void     scene3d_texture_free(unsigned tex);
 
 typedef struct {
-    unsigned atlas;        /* front+spine atlas (0 = flat `color` box)        */
-    unsigned back;         /* separate back cover (0 = atlas cap color)       */
-    float    color[3];     /* flat color for untextured boxes                 */
-    float    brightness;   /* lighting multiplier (dims far/unfocused boxes)  */
-    float    spec;         /* glossy highlight strength                       */
+    int      shape;        /* boxshape id (size, bevel, atlas layout)          */
+    unsigned atlas;        /* front+spine+top atlas (0 = flat `color` box)     */
+    unsigned back;         /* separate back cover (0 = atlas edge color)       */
+    float    color[3];     /* flat color for untextured boxes                  */
+    float    brightness;   /* lighting multiplier (dims far/unfocused boxes)   */
+    float    spec, shine;  /* highlight strength / tightness (matte cardboard
+                              vs. glossy plastic)                              */
 } BoxMaterial;
 
-/* model: rotation + translation (+ uniform scale) of a BOX_W x BOX_H x BOX_D
-   box centered on the origin. */
+/* Fills spec/shine for the shape's style (cardboard or plastic case). */
+void scene3d_material_for_shape(BoxMaterial *mat);
+
+/* model: rotation + translation (+ uniform scale) of the material's box
+   shape, centered on the origin. */
 void scene3d_draw_box(const Mat4 *model, const BoxMaterial *mat);
 /* Mirror image under the floor plane y = floor_y, fading out over `fade`. */
 void scene3d_draw_box_reflection(const Mat4 *model, const BoxMaterial *mat,
                                  float floor_y, float strength, float fade);
 /* Soft luminous rim around the box's front outline (additive). */
-void scene3d_draw_box_glow(const Mat4 *model, const float rgb[3], float strength, float margin);
+void scene3d_draw_box_glow(const Mat4 *model, int shape, const float rgb[3], float strength,
+                           float margin);
 
 /* Screen-space backdrop: a soft spotlight (NDC center/radius) and vignette. */
 void scene3d_draw_backdrop(float cx, float cy, float rx, float ry,

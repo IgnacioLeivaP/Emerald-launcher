@@ -14,6 +14,7 @@
                has the description, screenshots and version notes.
 
    The Launcher feeds it semantic inputs and turns its actions into launches. */
+#include "boxshape.h"
 #include "db.h"
 #include "mat4.h"
 #include "uikit.h"
@@ -58,8 +59,14 @@ private:
 
     struct Pose { float x, y, z, yaw, pitch, roll, scale, bright; };
     struct Slot { bool valid; int k; float x, z, yaw, bright; };
+    /* One box of a stack, in the group's own frame: boxes line up on their
+       right edges (each layer peeks out a little further) and stand one
+       behind the other. */
+    struct Layer { int j; const BoxShape *sh; float right, z, roll; };
     struct Inst {
         int   g, j;
+        int   shape;                      /* boxshape id                       */
+        const BoxShape *sh;
         int   layer;                      /* position in its stack (0 = front) */
         float kc;                         /* continuous shelf offset of its group */
         Pose  p;
@@ -87,6 +94,9 @@ private:
     int   m_vgroup = 0;
     int   m_ver = 0;
     float m_vscroll = 0.0f;
+    bool  m_fan_static = true;            /* few versions: all side by side    */
+    float m_fan_extra = 0.0f;             /* scrolling fan: widest box - 1 unit */
+    std::vector<float> m_fan_x;           /* static layout: center of each box */
 
     /* Inspect view */
     int   m_igroup = 0, m_ientry = 0;
@@ -128,9 +138,13 @@ private:
     bool wraps(void) const;
     const GameGroup &group(int g) const { return (*m_groups)[g]; }
     int  layers(int g) const;
+    const BoxShape *shape_of(int g, int j) const;
+    int  stack_layout(int g, Layer out[]) const;
+    void group_extent(int g, float yaw, float &lo, float &hi) const;
     void layout_at(int F, std::vector<Slot> &out) const;
-    Pose stack_pose(const Slot &s, int layer, float turn) const;
-    Pose version_pose(int j) const;
+    Pose stack_pose(const Slot &s, const Layer &L, const BoxShape *sh, int layer, float turn) const;
+    void layout_versions(void);
+    Pose version_pose(int j, const BoxShape *sh) const;
     void build(void);
     void setup_camera(void);
     bool project(float x, float y, float z, float &sx, float &sy) const;

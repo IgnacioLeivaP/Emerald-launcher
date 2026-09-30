@@ -14,33 +14,37 @@ namespace {
 const float PI  = 3.14159265f;
 const float DEG = PI / 180.0f;
 
-/* Stage: boxes stand on the floor, centered at y = 0. */
-const float FLOOR_Y = -BOX_H * 0.5f;
+/* Stage: every box stands on the floor, whatever its size (boxshape.h). */
+const float FLOOR_Y = -0.70f;
+const float EYE_Y = 0.34f, EYE_Z = 5.6f;
 
-/* Shelf (cover-flow) layout */
-const float Z0  = 0.55f;          /* focused game pulled forward        */
-const float X1  = 1.30f;          /* first neighbor                     */
-const float XS  = 0.50f;          /* further neighbors                  */
+/* Shelf (cover-flow) layout. Spacing follows each game's footprint, so big
+   landscape boxes and small Game Boy boxes both sit snugly. */
+const float Z0  = 0.55f;          /* focused game pulled forward             */
+const float G1  = 0.46f;          /* air between the focus and its neighbors */
+const float GS  = -0.19f;         /* neighbors overlap like leaning books    */
 const float Z1  = -0.35f;
 const float ZS  = 0.16f;
-const float ANG = 62.0f * DEG;    /* neighbors turned toward the center */
-const int   MAXVIS = 5;           /* offsets laid out on each side      */
+const float ANG = 62.0f * DEG;    /* neighbors turned toward the center      */
+const int   MAXVIS = 5;           /* offsets laid out on each side           */
 const int   WRAP_MIN = 12;        /* shorter lists "rewind" instead of wrapping visually */
 
-/* Version stacks: each extra version sits behind, a little to the right,
-   tilted like a fanned hand of cards. */
+/* Version stacks: each extra version stands behind, peeking out a little to
+   the right, tilted like a fanned hand of cards. */
 const int   MAX_LAYERS = 4;
-const float LDZ  = 0.25f;
+const float LGAP = 0.05f;         /* air between stacked boxes */
 const float LDX  = 0.12f;
-const float ROLL = 3.6f * DEG;
+const float ROLL = 3.3f * DEG;    /* per layer; taller boxes behind lean less */
 
-/* Versions: up to FAN_STATIC versions are all laid out side by side (the
-   focused one steps forward); longer lists scroll as a fan. */
+/* Versions: a few versions are all laid out side by side (the focused one
+   steps forward); longer lists — or ones too wide for the stage — scroll as
+   a fan. */
 const int   FAN_STATIC = 4;
+const float FAN_W = 4.9f;         /* widest static row (world units)         */
 const float VZ0 = 0.80f, VX1 = 1.48f, VXS = 1.02f, VZ1 = -0.05f, VZS = 0.28f, VANG = 34.0f * DEG;
 
-/* Inspect: the box is lifted toward the camera */
-const float IZ = 1.85f, IY = 0.10f;
+/* Inspect: the box is lifted toward the camera, closer for small boxes. */
+const float IY = 0.10f, IDIST = 3.75f;    /* reference: a 1.4-tall NES box */
 
 /* Info panel */
 const float INFO_Y = 500.0f;
@@ -165,6 +169,49 @@ int Shelf::layers(int g) const {
     return std::min((int)group(g).entries.size(), MAX_LAYERS);
 }
 
+const BoxShape *Shelf::shape_of(int g, int j) const {
+    return boxshape_get(boxart_shape(group(g), j));
+}
+
+/* The front `layers(g)` boxes of a group's stack, front first. */
+int Shelf::stack_layout(int g, Layer out[]) const {
+    const GameGroup &grp = group(g);
+    const int E = (int)grp.entries.size();
+    const int L = layers(g);
+    const int fr = front(g);
+    float right = 0.0f, z = 0.0f, prev_d = 0.0f, h0 = 1.0f;
+    for (int l = 0; l < L; l++) {
+        const int j = (fr + l) % E;
+        const BoxShape *sh = shape_of(g, j);
+        if (l == 0) { right = sh->w * 0.5f; h0 = sh->h; }
+        else        z -= prev_d * 0.5f + sh->d * 0.5f + LGAP;
+        const float roll = -(float)l * ROLL * std::min(1.0f, h0 / sh->h);   /* clockwise fan */
+        out[l] = Layer{j, sh, right + (float)l * LDX, z, roll};
+        prev_d = sh->d;
+    }
+    return L;
+}
+
+/* Horizontal extent [lo, hi] of a group's stack standing at x = 0, turned
+   by `yaw`: how much room it takes on the shelf. */
+void Shelf::group_extent(int g, float yaw, float &lo, float &hi) const {
+    Layer ls[MAX_LAYERS];
+    const int L = stack_layout(g, ls);
+    const Slot s{true, 0, 0.0f, 0.0f, yaw, 1.0f};
+    lo = 1e9f; hi = -1e9f;
+    for (int l = 0; l < L; l++) {
+        const BoxShape *sh = ls[l].sh;
+        const Mat4 m = matrix(stack_pose(s, ls[l], sh, l, 0.0f));
+        for (int k = 0; k < 8; k++) {
+            float w[4];
+            m4_apply(&m, ((k & 1) ? 0.5f : -0.5f) * sh->w, ((k & 2) ? 0.5f : -0.5f) * sh->h,
+                     ((k & 4) ? 0.5f : -0.5f) * sh->d, w);
+            lo = std::min(lo, w[0]);
+            hi = std::max(hi, w[0]);
+        }
+    }
+}
+
 /* ── Poses ─────────────────────────────────────────────────────────────── */
 Shelf::Pose Shelf::mix(const Pose &a, const Pose &b, float t) {
     Pose p;
@@ -183,8 +230,8 @@ Mat4 Shelf::matrix(const Pose &p) {
     return m;
 }
 
-/* Slots for a shelf focused exactly on integer position F. Stacks take room:
-   each group's extra layers push the groups beyond it further out. */
+/* Slots for a shelf focused exactly on integer position F. Each group takes
+   the room its stack needs, so the groups beyond it move further out. */
 void Shelf::layout_at(int F, std::vector<Slot> &out) const {
     const int n = count();
     out.assign((size_t)n, Slot{false, 0, 0.0f, 0.0f, 0.0f, 0.0f});
@@ -195,37 +242,45 @@ void Shelf::layout_at(int F, std::vector<Slot> &out) const {
         if (wrap) return mod(idx, n);
         return (idx >= 0 && idx < n) ? idx : -1;
     };
-    const float stack_dx = LDZ * sinf(ANG) + LDX * cosf(ANG);
 
     int c = group_at(0);
     if (c < 0) return;
     out[(size_t)c] = Slot{true, 0, 0.0f, Z0, 0.0f, 1.0f};
+    float clo, chi;
+    group_extent(c, 0.0f, clo, chi);
 
     for (int side = -1; side <= 1; side += 2) {
-        float x = X1 + (side > 0 ? (float)(layers(c) - 1) * 0.10f : 0.0f);
-        int   lim = wrap ? (side > 0 ? n / 2 : (n - 1) / 2) : MAXVIS + 1;
+        float edge = side > 0 ? chi : clo;              /* outer edge of the previous group */
+        float gap  = G1;
+        int   lim  = wrap ? (side > 0 ? n / 2 : (n - 1) / 2) : MAXVIS + 1;
         lim = std::min(lim, MAXVIS + 1);
         for (int k = 1; k <= lim; k++) {
             int g = group_at(side * k);
             if (g < 0) break;
-            float bright = std::max(0.42f, 0.84f - 0.08f * (float)(k - 1));
-            out[(size_t)g] = Slot{true, side * k, (float)side * x, Z1 - (float)(k - 1) * ZS,
-                                  -(float)side * ANG, bright};
-            x += XS + (float)(layers(g) - 1) * stack_dx;
+            const float yaw = -(float)side * ANG;
+            float lo, hi;
+            group_extent(g, yaw, lo, hi);
+            const float x = side > 0 ? edge + gap - lo : edge - gap - hi;
+            const float bright = std::max(0.42f, 0.84f - 0.08f * (float)(k - 1));
+            out[(size_t)g] = Slot{true, side * k, x, Z1 - (float)(k - 1) * ZS, yaw, bright};
+            edge = side > 0 ? x + hi : x + lo;
+            gap  = GS;
         }
     }
 }
 
-/* Center pose of stack layer `layer` of a group standing in slot s, turned
-   by `turn` (peek / idle sway) around the group's vertical axis. */
-Shelf::Pose Shelf::stack_pose(const Slot &s, int layer, float turn) const {
+/* Center pose of a stack box (layer `layer`, laid out as L) of a group
+   standing in slot s, turned by `turn` (peek / idle sway) around the group's
+   vertical axis. The box pivots on its bottom-right corner, on the floor. */
+Shelf::Pose Shelf::stack_pose(const Slot &s, const Layer &L, const BoxShape *sh, int layer,
+                              float turn) const {
     const float l = (float)layer;
-    const float r = -l * ROLL;                             /* clockwise fan         */
-    const float px = BOX_W * 0.5f, py = -BOX_H * 0.5f;     /* pivot: bottom-right   */
+    const float r = L.roll;
+    const float px = sh->w * 0.5f, py = -sh->h * 0.5f;     /* pivot, from the box center */
     const float cr = cosf(r), sr = sinf(r);
-    const float lx = l * LDX + px - (cr * px - sr * py);
-    const float ly = py - (sr * px + cr * py);
-    const float lz = -l * LDZ;
+    const float lx = L.right - (cr * px - sr * py);
+    const float ly = FLOOR_Y - (sr * px + cr * py);
+    const float lz = L.z;
     const float yaw = s.yaw + turn;
     const float cy = cosf(yaw), sy = sinf(yaw);
     Pose p;
@@ -240,8 +295,30 @@ Shelf::Pose Shelf::stack_pose(const Slot &s, int layer, float turn) const {
     return p;
 }
 
-Shelf::Pose Shelf::version_pose(int j) const {
-    const int   E = (int)group(m_vgroup).entries.size();
+/* Versions view layout for m_vgroup: side by side when they fit the stage. */
+void Shelf::layout_versions(void) {
+    const int E = (int)group(m_vgroup).entries.size();
+    float sum_w = 0.0f, max_w = 0.0f;
+    m_fan_x.assign((size_t)E, 0.0f);
+    for (int j = 0; j < E; j++) {
+        const float w = shape_of(m_vgroup, j)->w;
+        sum_w += w;
+        max_w = std::max(max_w, w);
+    }
+    const float gap_max = E <= 2 ? 0.60f : (E == 3 ? 0.50f : 0.30f);
+    const float gap = E > 1 ? std::min(gap_max, (FAN_W - sum_w) / (float)(E - 1)) : 0.0f;
+    m_fan_static = E <= FAN_STATIC && gap >= 0.25f;
+    m_fan_extra = std::max(-0.2f, std::min(0.6f, max_w - 1.0f));
+    if (!m_fan_static) return;
+    float x = -(sum_w + gap * (float)(E - 1)) * 0.5f;
+    for (int j = 0; j < E; j++) {
+        const float w = shape_of(m_vgroup, j)->w;
+        m_fan_x[(size_t)j] = x + w * 0.5f;
+        x += w + gap;
+    }
+}
+
+Shelf::Pose Shelf::version_pose(int j, const BoxShape *sh) const {
     const float e = (float)j - m_vscroll;
     const float a = fabsf(e), s = e < 0.0f ? -1.0f : 1.0f;
     const float te = ease(std::min(a, 1.0f));
@@ -249,12 +326,11 @@ Shelf::Pose Shelf::version_pose(int j) const {
     const float focus = 1.0f - std::min(a, 1.0f);
     const float turn = (m_peek + 0.045f * sinf(m_time * 0.9f)) * focus;
     Pose p;
-    if (E <= FAN_STATIC) {
-        const float spacing = E <= 2 ? 1.60f : (E == 3 ? 1.50f : 1.30f);
-        const float x = ((float)j - (float)(E - 1) * 0.5f) * spacing;
+    if (m_fan_static) {
+        const float x = m_fan_x[(size_t)j];
         const float f = ease(focus);
         p.x = x * (1.0f - 0.22f * f);                 /* stepping forward, toward the middle */
-        p.y = 0.0f;
+        p.y = FLOOR_Y + sh->h * 0.5f;
         p.z = -0.10f + 0.80f * f;
         p.yaw = -std::max(-1.0f, std::min(1.0f, e)) * 16.0f * DEG + turn;
         p.pitch = 0.0f;
@@ -263,8 +339,8 @@ Shelf::Pose Shelf::version_pose(int j) const {
         p.bright = 0.70f + 0.30f * f;
         return p;
     }
-    p.x = s * (te * VX1 + far * VXS);
-    p.y = 0.0f;
+    p.x = s * (te * (VX1 + 0.35f * m_fan_extra) + far * (VXS + 0.80f * m_fan_extra));
+    p.y = FLOOR_Y + sh->h * 0.5f;
     p.z = VZ0 + (VZ1 - VZ0) * te - far * VZS;
     p.yaw = -s * VANG * te + turn;
     p.pitch = 0.0f;
@@ -276,7 +352,7 @@ Shelf::Pose Shelf::version_pose(int j) const {
 
 /* ── Camera ────────────────────────────────────────────────────────────── */
 void Shelf::setup_camera(void) {
-    m_eye[0] = 0.0f; m_eye[1] = 0.34f; m_eye[2] = 5.6f;
+    m_eye[0] = 0.0f; m_eye[1] = EYE_Y; m_eye[2] = EYE_Z;
     m_view_m = m4_look_at(m_eye[0], m_eye[1], m_eye[2], 0.0f, 0.02f, 0.0f, 0.0f, 1.0f, 0.0f);
     /* Lens shift: the stage sits in the upper part of the screen, leaving
        room for the info panel below without tilting the camera. */
@@ -313,6 +389,7 @@ void Shelf::build(void) {
     }
     layout_at(F0, m_slots0);
     layout_at(F1, m_slots1);
+    if (mt > 0.001f) layout_versions();
 
     const float sway  = 0.045f * sinf(m_time * 0.9f);
     const float bob   = 0.010f * sinf(m_time * 1.4f);
@@ -338,15 +415,20 @@ void Shelf::build(void) {
         const int  E  = (int)grp.entries.size();
         const int  fr = front(g);
         const bool vg = (g == m_vgroup) && mt > 0.001f;
+        Layer ls[MAX_LAYERS];
+        const int L = stack_layout(g, ls);
 
         for (int j = 0; j < E; j++) {
             const int l = (j - fr + E) % E;
             if (l >= MAX_LAYERS && !vg) continue;
-            Pose p = stack_pose(s, std::min(l, MAX_LAYERS - 1), turn);
+            const int      shape = boxart_shape(grp, j);
+            const BoxShape *sh   = boxshape_get(shape);
+            const int      ll    = std::min(l, L - 1);        /* hidden versions wait behind the last layer */
+            Pose p = stack_pose(s, ls[ll], sh, ll, turn);
             p.y += bob * fw * (1.0f - mt);
             if (mt > 0.001f) {
                 if (g == m_vgroup) {
-                    p = mix(p, version_pose(j), mt);
+                    p = mix(p, version_pose(j, sh), mt);
                 } else {
                     Pose q = p;
                     q.z -= 5.5f; q.x *= 1.3f; q.bright *= 0.10f;
@@ -358,7 +440,11 @@ void Shelf::build(void) {
             const bool focus = ver_focus ? (g == m_vgroup && j == m_ver) : (g == m_sel && l == 0);
             if (it > 0.001f) {
                 if (g == m_igroup && j == m_ientry) {
-                    Pose q{0.0f, IY + bob, IZ, m_insp_yaw, m_insp_pitch, 0.0f, 1.0f, 1.0f};
+                    /* Close enough to fill the same share of the screen as a
+                       big NES box, seen from the same direction. */
+                    const float dist = std::max(sh->h * (IDIST / 1.40f), sh->w * 1.91f);
+                    const float y = EYE_Y - (EYE_Y - IY) * dist / IDIST;
+                    Pose q{0.0f, y + bob, EYE_Z - dist, m_insp_yaw, m_insp_pitch, 0.0f, 1.0f, 1.0f};
                     p = mix(p, q, it);
                 } else {
                     p.bright *= 1.0f - 0.72f * it;
@@ -373,7 +459,8 @@ void Shelf::build(void) {
                 p = mix(p, q, lt);
             }
             Inst in;
-            in.g = g; in.j = j; in.layer = l; in.kc = kc; in.p = p;
+            in.g = g; in.j = j; in.shape = shape; in.sh = sh;
+            in.layer = l; in.kc = kc; in.p = p;
             in.focus = focus; in.locked = locked;
             in.atlas = in.back = 0;
             m_insts.push_back(in);
@@ -390,8 +477,8 @@ void Shelf::build(void) {
         bool ok = true;
         for (int k = 0; k < 8; k++) {
             float w[4];
-            m4_apply(&in.model, ((k & 1) ? 0.5f : -0.5f) * BOX_W, ((k & 2) ? 0.5f : -0.5f) * BOX_H,
-                     ((k & 4) ? 0.5f : -0.5f) * BOX_D, w);
+            m4_apply(&in.model, ((k & 1) ? 0.5f : -0.5f) * in.sh->w, ((k & 2) ? 0.5f : -0.5f) * in.sh->h,
+                     ((k & 4) ? 0.5f : -0.5f) * in.sh->d, w);
             miny = std::min(miny, w[1]);
             float sx, sy;
             if (!project(w[0], w[1], w[2], sx, sy)) { ok = false; continue; }
@@ -446,11 +533,12 @@ void Shelf::draw_scene(void) {
     scene3d_set_camera(&m_view_m, &m_proj_m, m_eye);
     auto material = [&](const Inst &in) {
         BoxMaterial m;
+        m.shape = in.shape;
         m.atlas = in.atlas;
         m.back  = in.back;
         boxart_platform_color(group(in.g).entries[(size_t)in.j].platform, m.color);
         m.brightness = in.p.bright;
-        m.spec = 0.32f;
+        scene3d_material_for_shape(&m);
         return m;
     };
     const float it = ease(m_insp_t);
@@ -464,7 +552,7 @@ void Shelf::draw_scene(void) {
     for (const auto &in : m_insts) {
         float a = 0.60f * clamp01(1.0f - in.lift * 2.5f) * std::min(1.0f, in.p.bright * 1.5f)
                 * (1.0f - held(in));
-        scene3d_draw_shadow(in.p.x, in.p.z, in.p.yaw, FLOOR_Y, BOX_W * 0.62f, BOX_D * 1.7f, a);
+        scene3d_draw_shadow(in.p.x, in.p.z, in.p.yaw, FLOOR_Y, in.sh->w * 0.62f, in.sh->d * 1.5f, a);
     }
     for (const auto &in : m_insts) {
         BoxMaterial m = material(in);
@@ -474,7 +562,8 @@ void Shelf::draw_scene(void) {
         const float gold[3] = {0.95f, 0.70f, 0.18f};
         for (const auto &in : m_insts)
             if (in.focus)
-                scene3d_draw_box_glow(&in.model, gold, (0.50f + 0.16f * sinf(m_time * 2.4f)) * (1.0f - it), 0.11f);
+                scene3d_draw_box_glow(&in.model, in.shape, gold,
+                                      (0.50f + 0.16f * sinf(m_time * 2.4f)) * (1.0f - it), 0.11f);
     }
     scene3d_end();
 

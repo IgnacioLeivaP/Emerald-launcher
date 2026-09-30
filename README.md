@@ -27,10 +27,22 @@ source tree.
 
 ## Emerald Launcher 2.0 — the 3D shelf
 
-The launcher opens on a shelf of 3D game boxes standing on a glossy stage. The box
-art is generated from what `db.json` already has — the version's logo, its first
-screenshot as cover art, a platform banner and a ribbon with the version name — and
-each box also gets a spine and a back cover.
+The launcher opens on a shelf of 3D game boxes standing on a glossy stage. Each box has
+the shape and look of its platform's real retail box:
+
+| Platform | Box |
+|----------|-----|
+| NES | tall cardboard box, black grid front with the red platform tab |
+| SNES / Satellaview | wide cardboard box with the grey side band and purple stripes |
+| N64 | wide cardboard box, black top band with the colored platform letters |
+| Game Boy / Color / Advance | small cardboard boxes (white GB / GBC fronts, indigo GBA band) |
+| CD-i | black plastic clamshell with a printed insert, like a Mega Drive / VHS case |
+| PC ports | big cardboard box |
+
+Cardboard boxes are matte with rounded folds, a printed spine and top flap, a little
+grain and scuffed edges; the CD-i case is glossy plastic. The art is generated from what
+`db.json` already has — the version's logo, its first screenshot as cover art, the
+platform and a ribbon with the version name — and each box also gets a back cover.
 
 **You always know whether a game has other versions.** A game with more than one
 version is a fanned **stack** of boxes (one per version, each with its own cover), the
@@ -85,7 +97,8 @@ Any game or version in `db.json` can use a real box scan instead of the generate
 ```
 
 A version's `cover` is used as-is; a game-level `cover` is shared by all its versions
-(each one still gets its version ribbon on top). The `maker/` editor has fields for both.
+(each one still gets its version ribbon on top). The image's shape picks the box
+orientation, so a portrait scan of a Super Famicom box gets a portrait box. The `maker/` editor has fields for both.
 Box art is built in the background (during the boot logo), so large libraries don't slow
 the launcher down.
 

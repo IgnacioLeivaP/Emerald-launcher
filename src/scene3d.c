@@ -53,6 +53,7 @@ static const char *BOX_FS =
     "uniform vec3  u_color;\n"
     "uniform float u_bright;\n"
     "uniform float u_spec;\n"
+    "uniform float u_shine;\n"
     "uniform float u_alpha;\n"
     "uniform vec3  u_eye;\n"
     "uniform vec3  u_light;\n"
@@ -64,8 +65,8 @@ static const char *BOX_FS =
     "  float diff = max(dot(n, u_light), 0.0);\n"
     "  vec3 v = normalize(u_eye - v_wpos);\n"
     "  vec3 h = normalize(u_light + v);\n"
-    "  float sp = pow(max(dot(n, h), 0.0), 60.0) * u_spec;\n"
-    "  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.10;\n"
+    "  float sp = pow(max(dot(n, h), 0.0), u_shine) * u_spec;\n"
+    "  float rim = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.06;\n"
     "  vec3 col = (base * (0.52 + 0.60 * diff) + vec3(sp + rim)) * u_bright;\n"
     "  float a = u_alpha;\n"
     "  if (u_reflect.x > 0.5)\n"
@@ -123,7 +124,7 @@ static const char *FX_FS =
     "}\n";
 
 typedef struct {
-    GLint mvp, model, color, bright, spec, alpha, eye, light, reflect, tex;
+    GLint mvp, model, color, bright, spec, shine, alpha, eye, light, reflect, tex;
 } BoxLocs;
 typedef struct {
     GLint mvp, screen, mode, color, p0, p1, tex;
@@ -197,18 +198,6 @@ static void clear_gl_errors(void) {
 
 typedef struct { float p[3], n[3], uv[2]; } Vtx;
 
-static void add_face(Vtx *out, int *n,
-                     float tlx, float tly, float tlz, float blx, float bly, float blz,
-                     float brx, float bry, float brz, float trx, float try_, float trz,
-                     float nx, float ny, float nz, float u0, float v0, float u1, float v1) {
-    Vtx tl = {{tlx, tly, tlz}, {nx, ny, nz}, {u0, v0}};
-    Vtx bl = {{blx, bly, blz}, {nx, ny, nz}, {u0, v1}};
-    Vtx br = {{brx, bry, brz}, {nx, ny, nz}, {u1, v1}};
-    Vtx tr = {{trx, try_, trz}, {nx, ny, nz}, {u1, v0}};
-    out[(*n)++] = tl; out[(*n)++] = bl; out[(*n)++] = br;
-    out[(*n)++] = tl; out[(*n)++] = br; out[(*n)++] = tr;
-}
-
 static void setup_attribs(void) {
     gl_VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vtx), (void *)0);
     gl_EnableVertexAttribArray(0);
@@ -218,38 +207,125 @@ static void setup_attribs(void) {
     gl_EnableVertexAttribArray(2);
 }
 
-/* Face order in the VBO: front, left, right, top, bottom, back (atlas cap
-   color), back (full UVs for a separate back-cover texture). */
+/* Rounded-edge ("chamfered") box meshes, one per shape, all in one VBO.
+   Per shape: [main: 5 faces + 12 edge strips + 8 corners][back, atlas edge
+   color][back, full UVs for a separate back-cover texture]. Edge strips carry
+   the normals of both faces they join, so light rolls over the fold like on
+   a real cardboard box. */
+#define MAIN_VERTS   (5 * 6 + 12 * 6 + 8 * 3)
+#define SHAPE_VERTS  (MAIN_VERTS + 12)
+static int s_shape_first[BOXSHAPE_COUNT];
+
+/* Face with outward normal N, right R and up U (R x U = N) as seen from
+   outside, at distance hn, half extents hr x hu, inset by the bevel b. */
+static void emit_face(Vtx *v, int *n, const float N[3], const float R[3], const float U[3],
+                      float hn, float hr, float hu, float b,
+                      float u0, float v0, float u1, float v1) {
+    static const float sr[4] = { -1.0f, -1.0f, 1.0f, 1.0f }, su[4] = { 1.0f, -1.0f, -1.0f, 1.0f };
+    const float qu[4] = { u0, u0, u1, u1 }, qv[4] = { v0, v1, v1, v0 };
+    Vtx q[4];
+    for (int i = 0; i < 4; i++) {
+        for (int k = 0; k < 3; k++) {
+            q[i].p[k] = N[k] * hn + R[k] * sr[i] * (hr - b) + U[k] * su[i] * (hu - b);
+            q[i].n[k] = N[k];
+        }
+        q[i].uv[0] = qu[i];
+        q[i].uv[1] = qv[i];
+    }
+    v[(*n)++] = q[0]; v[(*n)++] = q[1]; v[(*n)++] = q[2];
+    v[(*n)++] = q[0]; v[(*n)++] = q[2]; v[(*n)++] = q[3];
+}
+
+/* Triangle, flipped if needed so it faces `out`. */
+static void emit_tri(Vtx *v, int *n, Vtx a, Vtx b, Vtx c, const float out[3]) {
+    float e1[3], e2[3], cr[3];
+    for (int k = 0; k < 3; k++) { e1[k] = b.p[k] - a.p[k]; e2[k] = c.p[k] - a.p[k]; }
+    cr[0] = e1[1] * e2[2] - e1[2] * e2[1];
+    cr[1] = e1[2] * e2[0] - e1[0] * e2[2];
+    cr[2] = e1[0] * e2[1] - e1[1] * e2[0];
+    if (cr[0] * out[0] + cr[1] * out[1] + cr[2] * out[2] < 0.0f) { Vtx t = b; b = c; c = t; }
+    v[(*n)++] = a; v[(*n)++] = b; v[(*n)++] = c;
+}
+
+static void build_shape(Vtx *v, int *n, const BoxShape *sh) {
+    const float hx = sh->w * 0.5f, hy = sh->h * 0.5f, hz = sh->d * 0.5f, b = sh->bevel;
+    const float half[3] = { hx, hy, hz };
+    const float AW = (float)sh->atlas_w, AH = (float)sh->atlas_h;
+    const float fw = (float)sh->fw, fh = (float)sh->fh, sd = (float)sh->sd;
+    /* UV rects (half-texel insets keep neighbors from bleeding in). */
+    const float fu0 = 0.5f / AW, fu1 = (fw - 0.5f) / AW, fv0 = 0.5f / AH, fv1 = (fh - 0.5f) / AH;
+    const float su0 = (fw + 0.5f) / AW, su1 = (fw + sd - 0.5f) / AW;
+    const float tv0 = (fh + 0.5f) / AH, tv1 = (fh + sd - 0.5f) / AH;
+    const float pu0 = (fw + 3.0f) / AW, pu1 = (fw + sd - 3.0f) / AW;
+    const float pv0 = (fh + 3.0f) / AH, pv1 = (fh + sd - 3.0f) / AH, pvm = (pv0 + pv1) * 0.5f;
+
+    static const float PX[3] = { 1, 0, 0 }, NX[3] = { -1, 0, 0 };
+    static const float PY[3] = { 0, 1, 0 }, NY[3] = { 0, -1, 0 };
+    static const float PZ[3] = { 0, 0, 1 }, NZ[3] = { 0, 0, -1 };
+
+    emit_face(v, n, PZ, PX, PY, hz, hx, hy, b, fu0, fv0, fu1, fv1);   /* front          */
+    emit_face(v, n, NX, PZ, PY, hx, hz, hy, b, su0, fv0, su1, fv1);   /* left: spine    */
+    emit_face(v, n, PX, NZ, PY, hx, hz, hy, b, su0, fv0, su1, fv1);   /* right: spine   */
+    emit_face(v, n, PY, PX, NZ, hy, hx, hz, b, fu0, tv0, fu1, tv1);   /* top            */
+    emit_face(v, n, NY, PX, PZ, hy, hx, hz, b, fu0, tv0, fu1, tv1);   /* bottom         */
+
+    /* 12 edge strips: along axis e, joining the faces on axes a and c. */
+    for (int e = 0; e < 3; e++) {
+        const int a = (e + 1) % 3, c = (e + 2) % 3;
+        for (int sa = -1; sa <= 1; sa += 2)
+            for (int sc = -1; sc <= 1; sc += 2) {
+                Vtx q[4];
+                float out[3] = { 0, 0, 0 };
+                out[a] = (float)sa; out[c] = (float)sc;
+                for (int i = 0; i < 4; i++) {
+                    const bool on_a = i < 2;                 /* 0,1 on face a; 2,3 on face c */
+                    const float se = (i == 0 || i == 3) ? -1.0f : 1.0f;
+                    q[i].p[e] = se * (half[e] - b);
+                    q[i].p[a] = (float)sa * (on_a ? half[a] : half[a] - b);
+                    q[i].p[c] = (float)sc * (on_a ? half[c] - b : half[c]);
+                    q[i].n[0] = q[i].n[1] = q[i].n[2] = 0.0f;
+                    if (on_a) q[i].n[a] = (float)sa; else q[i].n[c] = (float)sc;
+                    q[i].uv[0] = se < 0.0f ? pu0 : pu1;
+                    q[i].uv[1] = pvm;
+                }
+                emit_tri(v, n, q[0], q[1], q[2], out);
+                emit_tri(v, n, q[0], q[2], q[3], out);
+            }
+    }
+    /* 8 corner triangles. */
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2)
+            for (int sz = -1; sz <= 1; sz += 2) {
+                const float sg[3] = { (float)sx, (float)sy, (float)sz };
+                Vtx q[3];
+                for (int i = 0; i < 3; i++) {
+                    for (int k = 0; k < 3; k++) {
+                        q[i].p[k] = sg[k] * (k == i ? half[k] : half[k] - b);
+                        q[i].n[k] = k == i ? sg[k] : 0.0f;
+                    }
+                    q[i].uv[0] = (pu0 + pu1) * 0.5f;
+                    q[i].uv[1] = pvm;
+                }
+                emit_tri(v, n, q[0], q[1], q[2], sg);
+            }
+    /* Back: edge color from the atlas, or a full separate texture. */
+    emit_face(v, n, NZ, NX, PY, hz, hx, hy, b, pu0, pv0, pu1, pv1);
+    emit_face(v, n, NZ, NX, PY, hz, hx, hy, b, 0.0f, 0.0f, 1.0f, 1.0f);
+}
+
 static void build_box(void) {
-    const float w = BOX_W * 0.5f, h = BOX_H * 0.5f, d = BOX_D * 0.5f;
-    const float AW = (float)BOXART_ATLAS_W, AH = (float)BOXART_H;
-    const float fu0 = 0.5f / AW, fu1 = ((float)BOXART_FRONT_W - 0.5f) / AW;
-    const float su0 = ((float)BOXART_FRONT_W + 0.5f) / AW, su1 = (AW - 0.5f) / AW;
-    const float cu0 = ((float)BOXART_FRONT_W + 10.0f) / AW, cu1 = (AW - 10.0f) / AW;
-    const float cv0 = 4.0f / AH, cv1 = ((float)BOXART_CAP_H - 4.0f) / AH;
-    const float v0 = 0.5f / AH, v1 = 1.0f - 0.5f / AH;
-    Vtx vtx[42];
+    static Vtx vtx[BOXSHAPE_COUNT * SHAPE_VERTS];
     int n = 0;
-    /* front (+Z) */
-    add_face(vtx, &n, -w, h, d,  -w, -h, d,  w, -h, d,  w, h, d,  0, 0, 1,  fu0, v0, fu1, v1);
-    /* left (-X): the spine */
-    add_face(vtx, &n, -w, h, -d, -w, -h, -d, -w, -h, d, -w, h, d, -1, 0, 0, su0, v0, su1, v1);
-    /* right (+X): spine art too, like a printed cardboard box */
-    add_face(vtx, &n, w, h, d,   w, -h, d,   w, -h, -d,  w, h, -d, 1, 0, 0,  su0, v0, su1, v1);
-    /* top (+Y) */
-    add_face(vtx, &n, -w, h, -d, -w, h, d,   w, h, d,    w, h, -d, 0, 1, 0,  cu0, cv0, cu1, cv1);
-    /* bottom (-Y) */
-    add_face(vtx, &n, -w, -h, d, -w, -h, -d, w, -h, -d,  w, -h, d, 0, -1, 0, cu0, cv0, cu1, cv1);
-    /* back (-Z), cap color */
-    add_face(vtx, &n, w, h, -d,  w, -h, -d,  -w, -h, -d, -w, h, -d, 0, 0, -1, cu0, cv0, cu1, cv1);
-    /* back (-Z), full UVs */
-    add_face(vtx, &n, w, h, -d,  w, -h, -d,  -w, -h, -d, -w, h, -d, 0, 0, -1, 0.0f, 0.0f, 1.0f, 1.0f);
+    for (int i = 0; i < BOXSHAPE_COUNT; i++) {
+        s_shape_first[i] = n;
+        build_shape(vtx, &n, boxshape_get(i));
+    }
 
     gl_GenVertexArrays(1, &s_box_vao);
     gl_BindVertexArray(s_box_vao);
     gl_GenBuffers(1, &s_box_vbo);
     gl_BindBuffer(GL_ARRAY_BUFFER, s_box_vbo);
-    gl_BufferData(GL_ARRAY_BUFFER, sizeof(vtx), vtx, GL_STATIC_DRAW);
+    gl_BufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(sizeof(Vtx) * (size_t)n), vtx, GL_STATIC_DRAW);
     setup_attribs();
     gl_BindVertexArray(0);
 
@@ -285,6 +361,7 @@ bool scene3d_init(void) {
     s_bl.color   = gl_GetUniformLocation(s_box_prog, "u_color");
     s_bl.bright  = gl_GetUniformLocation(s_box_prog, "u_bright");
     s_bl.spec    = gl_GetUniformLocation(s_box_prog, "u_spec");
+    s_bl.shine   = gl_GetUniformLocation(s_box_prog, "u_shine");
     s_bl.alpha   = gl_GetUniformLocation(s_box_prog, "u_alpha");
     s_bl.eye     = gl_GetUniformLocation(s_box_prog, "u_eye");
     s_bl.light   = gl_GetUniformLocation(s_box_prog, "u_light");
@@ -528,6 +605,7 @@ static void box_uniforms(const Mat4 *model, const BoxMaterial *mat, float alpha,
     else            gl_Uniform3f(s_bl.color, mat->color[0], mat->color[1], mat->color[2]);
     gl_Uniform1f(s_bl.bright, mat->brightness);
     gl_Uniform1f(s_bl.spec, mat->spec);
+    gl_Uniform1f(s_bl.shine, mat->shine > 1.0f ? mat->shine : 1.0f);
     gl_Uniform1f(s_bl.alpha, alpha);
     gl_Uniform3f(s_bl.eye, s_eye[0], s_eye[1], s_eye[2]);
     gl_Uniform3f(s_bl.light, s_light[0], s_light[1], s_light[2]);
@@ -535,16 +613,24 @@ static void box_uniforms(const Mat4 *model, const BoxMaterial *mat, float alpha,
 }
 
 static void box_geometry(const BoxMaterial *mat) {
+    const int shape = (mat->shape >= 0 && mat->shape < BOXSHAPE_COUNT) ? mat->shape : 0;
+    const int first = s_shape_first[shape];
     gl_ActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, mat->atlas ? mat->atlas : s_white_tex);
     gl_BindVertexArray(s_box_vao);
     if (mat->atlas && mat->back) {
-        glDrawArrays(GL_TRIANGLES, 0, 30);
+        glDrawArrays(GL_TRIANGLES, first, MAIN_VERTS);
         glBindTexture(GL_TEXTURE_2D, mat->back);
-        glDrawArrays(GL_TRIANGLES, 36, 6);
+        glDrawArrays(GL_TRIANGLES, first + MAIN_VERTS + 6, 6);
     } else {
-        glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDrawArrays(GL_TRIANGLES, first, MAIN_VERTS + 6);
     }
+}
+
+void scene3d_material_for_shape(BoxMaterial *mat) {
+    const BoxShape *sh = boxshape_get(mat->shape);
+    if (sh->style == BOXSTYLE_CASE) { mat->spec = 0.38f; mat->shine = 70.0f; }   /* glossy plastic */
+    else                            { mat->spec = 0.07f; mat->shine = 9.0f;  }   /* printed cardboard */
 }
 
 void scene3d_draw_box(const Mat4 *model, const BoxMaterial *mat) {
@@ -577,10 +663,12 @@ void scene3d_draw_box_reflection(const Mat4 *model, const BoxMaterial *mat,
     glFrontFace(GL_CCW);
 }
 
-void scene3d_draw_box_glow(const Mat4 *model, const float rgb[3], float strength, float margin) {
+void scene3d_draw_box_glow(const Mat4 *model, int shape, const float rgb[3], float strength,
+                           float margin) {
     if (!s_ready || strength <= 0.0f) return;
-    float qw = BOX_W + 2.0f * margin, qh = BOX_H + 2.0f * margin;
-    Mat4 m = m4_mul(*model, m4_mul(m4_translate(0.0f, 0.0f, -BOX_D * 0.5f - 0.004f),
+    const BoxShape *sh = boxshape_get(shape);
+    float qw = sh->w + 2.0f * margin, qh = sh->h + 2.0f * margin;
+    Mat4 m = m4_mul(*model, m4_mul(m4_translate(0.0f, 0.0f, -sh->d * 0.5f - 0.004f),
                                    m4_scale(qw, qh, 1.0f)));
     glEnable(GL_BLEND);
     glBlendFunc(GL_ONE, GL_ONE);
@@ -588,7 +676,7 @@ void scene3d_draw_box_glow(const Mat4 *model, const float rgb[3], float strength
     glDepthMask(GL_FALSE);
     glDisable(GL_CULL_FACE);
     const float color[4] = { rgb[0], rgb[1], rgb[2], strength };
-    const float p0[4] = { BOX_W * 0.5f, BOX_H * 0.5f, margin, 0.04f };
+    const float p0[4] = { sh->w * 0.5f, sh->h * 0.5f, margin, 0.04f + sh->bevel };
     const float p1[4] = { qw, qh, 0.0f, 0.0f };
     fx_quad(0, 3, &m, color, p0, p1, 0);
     glDepthMask(GL_TRUE);
